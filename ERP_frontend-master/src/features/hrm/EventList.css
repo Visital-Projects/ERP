@@ -1,0 +1,27 @@
+.fc .fc-button {
+  background-color: #28a745 !important;
+  border: none !important;
+  color: white !important;
+  border-radius: 6px !important;
+  font-weight: 500;
+  padding: 0.4rem 0.8rem;
+}
+
+.fc .fc-button:hover {
+  background-color: #5c9257 !important;
+}
+
+.fc .fc-toolbar-title {
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.fc .fc-button-group > .fc-button {
+  margin-right: 5px;
+}
+
+.fc-event {
+  font-size: 0.8rem;
+  padding: 4px 6px;
+  border-radius: 4px;
+}

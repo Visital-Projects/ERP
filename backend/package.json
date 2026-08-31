@@ -1,0 +1,44 @@
+{
+  "name": "erp-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "sync:biometric": "node workers/biometricSync.worker.js",
+    "start:all": "concurrently \"npm run start\" \"npm run sync:biometric\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.12.2",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.2",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.0",
+    "ejs": "^3.1.10",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "express-validator": "^7.2.1",
+    "html-pdf": "^3.0.1",
+    "html-pdf-node": "^1.0.8",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "mysql2": "^3.14.2",
+    "node-cron": "^4.2.1",
+    "number-to-words": "^1.2.4",
+    "pdf-lib": "^1.17.1",
+    "pdfkit": "^0.17.2",
+    "phantomjs-prebuilt": "^2.1.16",
+    "puppeteer": "^24.20.0",
+    "puppeteer-core": "^24.20.0",
+    "sequelize": "^6.37.7",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}

@@ -1,0 +1,32 @@
+/* Modal open animation */
+.custom-slide-modal.open .modal-dialog {
+  animation: slideInUp 0.7s ease forwards;
+}
+
+/* Modal close animation */
+.custom-slide-modal.closing .modal-dialog {
+  animation: slideOutUp 0.7s ease forwards;
+}
+
+/* Keyframes */
+@keyframes slideInUp {
+  from {
+    transform: translateY(100%); /* start from bottom */
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0); /* center */
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutUp {
+  from {
+    transform: translateY(0); /* center */
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-100%); /* slide up and disappear */
+    opacity: 0;
+  }
+}

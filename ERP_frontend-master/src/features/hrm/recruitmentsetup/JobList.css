@@ -1,0 +1,30 @@
+.job-card {
+  padding: 16px;
+  border-radius: 14px;
+  box-shadow: 0 0 12px rgba(0,0,0,0.05);
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+
+.job-card.total {
+  background: linear-gradient(to right, #ffe2e5, #ffcdd2);
+}
+
+.job-card.active {
+  background: linear-gradient(to right, #e6ffed, #c8facc);
+}
+
+.job-card.inactive {
+  background: linear-gradient(to right, #fff4de, #ffe9b6);
+}
+
+.icon-box {
+  background: white;
+  padding: 10px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+ 

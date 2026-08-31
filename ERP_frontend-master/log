@@ -1,0 +1,893 @@
+import React, { useEffect, useState } from "react";
+import { Card, Row, Col, Button, Dropdown, Modal, Form } from "react-bootstrap";
+import { FileEarmarkTextFill, HourglassSplit } from "react-bootstrap-icons";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
+import reportService from "../../../services/reportService";
+import PurchaseReport from "./PurchaseReport";
+import WorkOrderReport from "./WorkOrderReport";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+
+
+const TaxSummary = () => {
+  const [loading, setLoading] = useState(true);
+  const [monthlyData, setMonthlyData] = useState([]);
+  const [incomeData, setIncomeData] = useState([]);
+  const [totalExpenseTax, setTotalExpenseTax] = useState(0);
+  const [totalIncomeTax, setTotalIncomeTax] = useState(0);
+  const [totalTaxToPay, setTotalTaxToPay] = useState(0);
+  const [totalIncome, setTotalIncome] = useState(0);
+  const [totalExpense, setTotalExpense] = useState(0);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+
+
+  // Filter state
+  const [filterType, setFilterType] = useState("Monthly");
+  const [showModal, setShowModal] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedQuarter, setSelectedQuarter] = useState([0, 2]);
+  const [selectedFY, setSelectedFY] = useState(2024);
+
+  const months = [
+    "JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE",
+    "JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER",
+  ];
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const expenseSummary = await reportService.getExpenseSummary();
+        const incomeSummary = await reportService.getIncomeSummary();
+
+        if (expenseSummary && incomeSummary) {
+          const expenseTax = calculateExpenseData(expenseSummary);
+          const incomeTax = calculateIncomeData(incomeSummary);
+
+          setMonthlyData(expenseTax.monthly);
+          setIncomeData(incomeTax.monthly);
+          setTotalExpenseTax(expenseTax.totalTaxSum);
+          setTotalIncomeTax(incomeTax.totalGSTSum);
+          setTotalExpense(expenseTax.totalExpenseSum);
+          setTotalIncome(incomeTax.totalIncomeSum);
+          setTotalTaxToPay(incomeTax.totalGSTSum - expenseTax.totalTaxSum);
+        }
+      } catch (err) {
+        console.error("Error fetching tax summary:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const calculateExpenseData = (data) => {
+    const monthExpenseTotals = Array(12).fill(0);
+    const monthTaxTotals = Array(12).fill(0);
+    let totalExpenseSum = 0;
+    let totalTaxSum = 0;
+
+    if (data?.branch_details) {
+      data.branch_details.forEach((branch) => {
+        branch.months.forEach((monthData) => {
+          const monthIndex = new Date(`${monthData.month} 1, ${data.year}`).getMonth();
+          let total_amount = 0;
+          let tax = 0;
+          monthData.records?.forEach((rec) => {
+            total_amount += parseFloat(rec.total_amount || 0);
+            tax += parseFloat(rec.tax_total || 0);
+          });
+          monthExpenseTotals[monthIndex] += total_amount;
+          monthTaxTotals[monthIndex] += tax;
+          totalExpenseSum += total_amount;
+          totalTaxSum += tax;
+        });
+      });
+    }
+
+    const monthly = months.map((m, i) => ({
+      month: m.substring(0, 3),
+      expense: monthExpenseTotals[i],
+      tax: monthTaxTotals[i],
+    }));
+
+    return { monthly, totalExpenseSum, totalTaxSum };
+  };
+
+  const calculateIncomeData = (data) => {
+    const monthIncomeTotals = Array(12).fill(0);
+    const monthGSTTotals = Array(12).fill(0);
+    let totalIncomeSum = 0;
+    let totalGSTSum = 0;
+
+    const processInvoices = (invoices = []) => {
+      invoices.forEach((inv) => {
+        const month = new Date().getMonth();
+        const amount = parseFloat(inv.total_amount || 0);
+        const gstAmount =
+          parseFloat(inv.gst_amount) ||
+          (parseFloat(inv.cgst || 0) +
+            parseFloat(inv.sgst || 0) +
+            parseFloat(inv.igst || 0)) ||
+          0;
+
+        monthIncomeTotals[month] += amount;
+        monthGSTTotals[month] += gstAmount;
+        totalIncomeSum += amount;
+        totalGSTSum += gstAmount;
+      });
+    };
+
+    processInvoices(data.work_order_invoices);
+    processInvoices(data.purchase_order_invoices);
+
+    const monthly = months.map((m, i) => ({
+      month: m.substring(0, 3),
+      income: monthIncomeTotals[i],
+      gst: monthGSTTotals[i],
+    }));
+
+    return { monthly, totalIncomeSum, totalGSTSum };
+  };
+
+  const currentMonthIndex = new Date().getMonth();
+  const monthlyExpense = monthlyData[currentMonthIndex]?.expense || 0;
+  const monthlyExpenseTax = monthlyData[currentMonthIndex]?.tax || 0;
+  const monthlyIncomeGST = incomeData[currentMonthIndex]?.gst || 0;
+  const monthlyNetTax = monthlyIncomeGST - monthlyExpenseTax;
+  const monthlyIncome = incomeData[currentMonthIndex]?.income || 0;
+
+  const handleFilterClick = (type) => {
+    setFilterType(type);
+    setShowModal(true);
+  };
+
+  const downloadExcel = () => {
+  const rows = months.map((month, index) => ({
+    Month: month,
+    Expense: monthlyData[index]?.expense || 0,
+    Expense_Tax: monthlyData[index]?.tax || 0,
+    Income: incomeData[index]?.income || 0,
+    GST: incomeData[index]?.gst || 0,
+    Net_Tax:
+      (incomeData[index]?.gst || 0) -
+      (monthlyData[index]?.tax || 0),
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Tax Summary");
+
+  XLSX.writeFile(workbook, "Tax_Summary.xlsx");
+};
+
+
+const downloadPDF = () => {
+  const doc = new jsPDF();
+
+  doc.setFontSize(16);
+  doc.text("Tax Summary Report", 14, 15);
+
+  const tableData = months.map((month, index) => [
+    month,
+    monthlyData[index]?.expense || 0,
+    monthlyData[index]?.tax || 0,
+    incomeData[index]?.income || 0,
+    incomeData[index]?.gst || 0,
+    (incomeData[index]?.gst || 0) -
+      (monthlyData[index]?.tax || 0),
+  ]);
+
+  doc.autoTable({
+    startY: 25,
+    head: [
+      [
+        "Month",
+        "Expense",
+        "Expense Tax",
+        "Income",
+        "GST",
+        "Net Tax",
+      ],
+    ],
+    body: tableData,
+    styles: { fontSize: 9 },
+  });
+
+  doc.save("Tax_Summary.pdf");
+};
+
+
+  return (
+    <div className="container-fluid mt-4 mb-5">
+      <Row className="g-3 mb-4">
+        <Col md={6}>
+          <Card className="p-4 shadow-sm d-flex flex-row align-items-center justify-content-between">
+            <div className="d-flex align-items-center">
+              <Dropdown>
+                <Dropdown.Toggle
+                  variant="light"
+                  id="dropdown-period"
+                  className="bg-success bg-opacity-10 rounded-circle p-3 me-3 border-0"
+                >
+                  <HourglassSplit size={28} className="text-success" />
+                </Dropdown.Toggle>
+
+                <Dropdown.Menu>
+                  {["Monthly", "Quarterly", "Financial Year"].map((type) => (
+                    <Dropdown.Item key={type} onClick={() => handleFilterClick(type)}>
+                      {type}
+                    </Dropdown.Item>
+                  ))}
+                </Dropdown.Menu>
+              </Dropdown>
+              <div>
+                <h6 className="text-muted mb-0">Period :</h6>
+                <h5 className="fw-bold mb-0">{filterType}</h5>
+              </div>
+            </div>
+          </Card>
+        </Col>
+        <Col md={6}>
+          <Card className="p-4 shadow-sm d-flex flex-row align-items-center justify-content-between">
+            <div className="d-flex flex-row align-items-center">
+              <div className="bg-success bg-opacity-10 rounded-circle p-3 me-3">
+                <FileEarmarkTextFill size={28} className="text-success" />
+              </div>
+              <div>
+                <h6 className="text-muted mb-0">Report :</h6>
+                <h5 className="fw-bold mb-0">Monthly Expense & Tax Summary</h5>
+              </div>
+            </div>
+<Dropdown show={showDownloadMenu} onToggle={() => setShowDownloadMenu(!showDownloadMenu)}>
+  <Dropdown.Toggle
+    variant="success"
+    size="sm"
+    className="fw-semibold"
+  >
+    <i className="bi bi-download me-1"></i> Download
+  </Dropdown.Toggle>
+
+  <Dropdown.Menu>
+    <Dropdown.Item onClick={downloadPDF}>
+      📄 Download PDF
+    </Dropdown.Item>
+    <Dropdown.Item onClick={downloadExcel}>
+      📊 Download Excel
+    </Dropdown.Item>
+  </Dropdown.Menu>
+</Dropdown>
+
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Modal for selecting period */}
+      <Modal show={showModal} onHide={() => setShowModal(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>Select {filterType}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {filterType === "Monthly" && (
+            <Form.Select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+            >
+              {months.map((m, i) => (
+                <option key={i} value={i}>{m}</option>
+              ))}
+            </Form.Select>
+          )}
+
+          {filterType === "Quarterly" && (
+            <div className="d-flex gap-2">
+              <Form.Select
+                value={selectedQuarter[0]}
+                onChange={(e) =>
+                  setSelectedQuarter([parseInt(e.target.value), selectedQuarter[1]])
+                }
+              >
+                {months.map((m, i) => (
+                  <option key={i} value={i}>{m}</option>
+                ))}
+              </Form.Select>
+              <Form.Select
+                value={selectedQuarter[1]}
+                onChange={(e) =>
+                  setSelectedQuarter([selectedQuarter[0], parseInt(e.target.value)])
+                }
+              >
+                {months.map((m, i) => (
+                  <option key={i} value={i}>{m}</option>
+                ))}
+              </Form.Select>
+            </div>
+          )}
+
+          {filterType === "Financial Year" && (
+            <Form.Select
+              value={selectedFY}
+              onChange={(e) => setSelectedFY(parseInt(e.target.value))}
+            >
+              {[2022, 2023, 2024, 2025, 2026].map((yr) => (
+                <option key={yr} value={yr}>{yr}-{yr+1}</option>
+              ))}
+            </Form.Select>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowModal(false)}>Cancel</Button>
+          <Button variant="primary" onClick={() => setShowModal(false)}>Apply</Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Total Summary Cards */}
+      <Row className="g-3 mb-4">
+        <Col md={4}>
+          <Card className="p-5 shadow-sm text-center">
+            <h6 className="text-muted mb-1">Monthly Expense</h6>
+            <h4 className="fw-bold text-primary">₹{monthlyExpense.toFixed(2)}</h4>
+          </Card>
+        </Col>
+        <Col md={4}>
+          <Card className="p-5 shadow-sm text-center">
+            <h6 className="text-muted mb-1">Monthly Tax</h6>
+            <h4 className="fw-bold text-warning">₹{monthlyNetTax.toFixed(2)}</h4>
+          </Card>
+        </Col>
+        <Col md={4}>
+          <Card className="p-5 shadow-sm text-center">
+            <h6 className="text-muted mb-1">Monthly Income</h6>
+            <h4 className="fw-bold text-success">₹{monthlyIncome.toFixed(2)}</h4>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Charts Section */}
+      <Row>
+        <Col md={6}>
+          <Card className="shadow-sm border-0 mb-4">
+            <Card.Body>
+              <h5 className="mb-3 fw-bold">Monthly Expense vs Tax Trend</h5>
+              {loading ? (
+                <p className="text-center text-muted">Loading chart...</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={monthlyData}>
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend verticalAlign="top" align="right" />
+                    <Line type="monotone" dataKey="expense" stroke="#0077b6" strokeWidth={2} dot={false} name="Expense" />
+                    <Line type="monotone" dataKey="tax" stroke="#ff9f1c" strokeWidth={2} dot={false} name="Tax" />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+
+        <Col md={6}>
+          <Card className="shadow-sm border-0 mb-4">
+            <Card.Body>
+              <h5 className="mb-3 fw-bold">Monthly Income vs GST Trend</h5>
+              {loading ? (
+                <p className="text-center text-muted">Loading chart...</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={incomeData}>
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend verticalAlign="top" align="right" />
+                    <Line type="monotone" dataKey="income" stroke="#28a745" strokeWidth={2} dot={false} name="Income" />
+                    <Line type="monotone" dataKey="gst" stroke="#ff9f1c" strokeWidth={2} dot={false} name="GST" />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Purchase & Work Order Reports */}
+      <div className="mt-5">
+        <h4 className="fw-bold mb-4 text-center text-primary">
+          Purchase & Work Order Reports
+        </h4>
+        <Row className="g-4">
+          <Col md={6}>
+            <h5 className="fw-bold mb-3 text-primary">Purchase Order Report</h5>
+            <PurchaseReport />
+          </Col>
+          <Col md={6}>
+            <h5 className="fw-bold mb-3 text-success">Work Order Report</h5>
+            <WorkOrderReport />
+          </Col>
+        </Row>
+      </div>
+    </div>
+  );
+};
+
+export default TaxSummary;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ManageMonthlyAttendance.jsx
+import React, { useState, useEffect, useMemo } from 'react';
+import { getEmployees } from '../../../../services/hrmService';
+import attendanceService from '../../../../services/attendanceService';
+
+const ManageMonthlyAttendance = () => {
+  const [selectedMonth, setSelectedMonth] = useState('February, 2026');
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState('');
+  const [selectedEmployee, setSelectedEmployee] = useState('');
+  const [activeTab, setActiveTab] = useState('Month');
+  const [employees, setEmployees] = useState([]);
+  const [attendanceData, setAttendanceData] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+
+  // Mock data
+  const tabs = ['Month', 'Branch', 'Department', 'Employee'];
+  const months = ['January, 2026', 'February, 2026', 'March, 2026', 'April, 2026'];
+  const branches = ['Main Branch', 'Downtown Branch', 'West Branch', 'East Branch'];
+  const departments = ['HR', 'Engineering', 'Sales', 'Marketing', 'Finance'];
+  
+  const buttons = ['Report', 'Duration', 'Attendance Summary', 'Early leave', 'Employee late'];
+
+  // Calculate days based on selected month
+  const days = useMemo(() => {
+    const [monthName, year] = selectedMonth.split(', ');
+    const monthMap = {
+      'January': 0, 'February': 1, 'March': 2, 'April': 3,
+      'May': 4, 'June': 5, 'July': 6, 'August': 7,
+      'September': 8, 'October': 9, 'November': 10, 'December': 11
+    };
+    
+    const monthIndex = monthMap[monthName];
+    const yearNum = parseInt(year);
+    
+    // Get last day of the month
+    const lastDay = new Date(yearNum, monthIndex + 1, 0).getDate();
+    
+    // Generate array of days from 1 to lastDay
+    return Array.from({ length: lastDay }, (_, i) => (i + 1).toString().padStart(2, '0'));
+  }, [selectedMonth]);
+
+  // Month name to number mapping
+  const monthNameToNumber = {
+    'January': '01', 'February': '02', 'March': '03', 'April': '04',
+    'May': '05', 'June': '06', 'July': '07', 'August': '08',
+    'September': '09', 'October': '10', 'November': '11', 'December': '12'
+  };
+
+  // Fetch employees on component mount
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      setIsLoading(true);
+      try {
+        const employeeData = await getEmployees();
+        setEmployees(employeeData);
+        fetchAttendanceData(employeeData);
+      } catch (error) {
+        console.error("Error loading employees:", error);
+        const mockEmployees = ['Mick Aston', 'Proting', 'Cooper Decker', 'Brianna Copeland'];
+        setEmployees(mockEmployees);
+        createMockAttendanceData(mockEmployees);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchEmployees();
+  }, []);
+
+  // Fetch attendance data whenever selectedMonth changes
+  useEffect(() => {
+    if (employees.length > 0) {
+      fetchAttendanceData(employees);
+    }
+  }, [selectedMonth]); // Add selectedMonth as dependency
+
+  // Fetch attendance data
+  const fetchAttendanceData = async (employeeList) => {
+    setAttendanceLoading(true);
+    try {
+      const [monthName, year] = selectedMonth.split(', ');
+      const monthNumber = monthNameToNumber[monthName];
+      
+      // Get last day of the month
+      const lastDay = days.length;
+      const startDate = `${year}-${monthNumber}-01`;
+      const endDate = `${year}-${monthNumber}-${lastDay.toString().padStart(2, '0')}`;
+      
+      // Fetch attendance data for the selected month
+      const response = await attendanceService.getAll({
+        start_date: startDate,
+        end_date: endDate
+      });
+      
+      if (response.data && response.data.success) {
+        const attendanceRecords = response.data.data || [];
+        const transformedData = transformAttendanceData(employeeList, attendanceRecords);
+        setAttendanceData(transformedData);
+      } else {
+        // Fallback if API response structure is different
+        createMockAttendanceData(employeeList);
+      }
+    } catch (error) {
+      console.error("Error loading attendance data:", error);
+      createMockAttendanceData(employeeList);
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  // Transform API attendance data to table format
+  const transformAttendanceData = (employeeList, attendanceRecords) => {
+    // Group attendance records by employee
+    const attendanceByEmployee = {};
+    
+    attendanceRecords.forEach(record => {
+      const employeeName = record.employee?.name || 'Unknown';
+      if (!attendanceByEmployee[employeeName]) {
+        attendanceByEmployee[employeeName] = {};
+      }
+      
+      // Extract day from date (e.g., "2026-02-03" -> "03")
+      const day = record.date.split('-')[2];
+      attendanceByEmployee[employeeName][day] = {
+        status: record.status?.charAt(0) || '', // 'P' for Present, 'A' for Absent
+        clockIn: record.clock_in,
+        clockOut: record.clock_out,
+        late: record.late,
+        earlyLeaving: record.early_leaving,
+        overtime: record.overtime
+      };
+    });
+
+    // Create table data structure
+    return employeeList.map(employee => {
+      const employeeName = typeof employee === 'object' 
+        ? employee.name || employee.employeeName || 'Unknown'
+        : employee;
+      
+      // Create days array with status codes
+      const employeeDays = days.map(day => {
+        const dayAttendance = attendanceByEmployee[employeeName]?.[day];
+        if (dayAttendance) {
+          return dayAttendance.status;
+        }
+        return ''; // Empty for no data
+      });
+
+      return {
+        name: employeeName,
+        days: employeeDays,
+        employeeData: typeof employee === 'object' ? employee : null
+      };
+    });
+  };
+
+  // Create mock attendance data (fallback)
+  const createMockAttendanceData = (employeeList) => {
+    const mockData = employeeList.map(employee => {
+      const employeeName = typeof employee === 'object' 
+        ? employee.name || employee.employeeName || 'Unknown'
+        : employee;
+      
+      // Generate random attendance status for each day
+      const employeeDays = days.map(() => {
+        const random = Math.random();
+        if (random > 0.7) return 'P';
+        if (random > 0.4) return 'A';
+        return '';
+      });
+
+      return {
+        name: employeeName,
+        days: employeeDays
+      };
+    });
+    
+    setAttendanceData(mockData);
+  };
+
+  // Handle month change
+  const handleMonthChange = (month) => {
+    setSelectedMonth(month);
+    // The useEffect with [selectedMonth] dependency will handle the refresh
+  };
+
+  return (
+    <div className="container-fluid py-3 bg-light min-vh-100">
+      {/* Header */}
+      <div className="mb-4">
+        <h1 className="h2 fw-bold text-dark mb-2">Manage Monthly Attendance</h1>
+        <nav aria-label="breadcrumb">
+          <ol className="breadcrumb mb-0">
+            <li className="breadcrumb-item"><a href="#" className="text-decoration-none">Dashboard</a></li>
+            <li className="breadcrumb-item active" aria-current="page">Monthly Attendance</li>
+          </ol>
+        </nav>
+      </div>
+
+      {/* Tabs */}
+      <div className="card mb-4 shadow-sm">
+        <div className="card-body p-0">
+          <ul className="nav nav-tabs border-0">
+            {tabs.map(tab => (
+              <li className="nav-item" key={tab}>
+                <button
+                  className={`nav-link ${activeTab === tab ? 'active' : ''}`}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {tab}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      {/* Dropdowns */}
+      <div className="row g-3 mb-4">
+        <div className="col-md-3">
+          <div className="form-group">
+            <label className="form-label fw-medium">Month</label>
+            <select 
+              className="form-select"
+              value={selectedMonth} 
+              onChange={(e) => handleMonthChange(e.target.value)}
+            >
+              {months.map(month => (
+                <option key={month} value={month}>{month}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        
+        <div className="col-md-3">
+          <div className="form-group">
+            <label className="form-label fw-medium">Branch</label>
+            <select 
+              className="form-select"
+              value={selectedBranch} 
+              onChange={(e) => setSelectedBranch(e.target.value)}
+            >
+              <option value="">Select Branch</option>
+              {branches.map(branch => (
+                <option key={branch} value={branch}>{branch}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        
+        <div className="col-md-3">
+          <div className="form-group">
+            <label className="form-label fw-medium">Department</label>
+            <select 
+              className="form-select"
+              value={selectedDepartment} 
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+            >
+              <option value="">Select Department</option>
+              {departments.map(dept => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        
+        <div className="col-md-3">
+          <div className="form-group">
+            <label className="form-label fw-medium">Employee</label>
+            <select 
+              className="form-select"
+              value={selectedEmployee} 
+              onChange={(e) => setSelectedEmployee(e.target.value)}
+              disabled={isLoading}
+            >
+              <option value="">Select Employee</option>
+              {employees.map(employee => {
+                const employeeName = typeof employee === 'object' 
+                  ? employee.name || employee.employeeName || 'Unknown'
+                  : employee;
+                const employeeId = typeof employee === 'object' 
+                  ? employee.id || employee.employeeId || employeeName
+                  : employee;
+                
+                return (
+                  <option key={employeeId} value={employeeName}>
+                    {employeeName}
+                  </option>
+                );
+              })}
+            </select>
+            {isLoading && (
+              <small className="text-muted">Loading employees...</small>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Reports Section - Update duration display */}
+      <div className="mb-4">
+        <h2 className="h4 fw-bold mb-3 text-dark">Reports</h2>
+        <div className="row g-4">
+          <div className="col-xl-3 col-md-6">
+            <div className="card h-100 border-0 shadow-sm">
+              <div className="card-body">
+                <h3 className="card-title h5 fw-bold text-dark border-bottom pb-2 mb-3">Attendance Summary</h3>
+                <div className="mb-4">
+                  <h4 className="h6 text-muted mb-2">Attendance</h4>
+                  <div className="d-flex justify-content-between align-items-center mb-2">
+                    <span className="text-muted">Total present:</span>
+                    <span className="fw-bold text-dark">24</span>
+                  </div>
+                  <div className="d-flex justify-content-between align-items-center">
+                    <span className="text-muted">Total leave:</span>
+                    <span className="fw-bold text-dark">20</span>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="h6 text-muted mb-2">Overtime</h4>
+                  <div className="d-flex justify-content-between align-items-center">
+                    <span className="text-muted">Total overtime in hours:</span>
+                    <span className="fw-bold text-dark">25.55</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="col-xl-2 col-md-6">
+            <div className="card h-100 border-0 shadow-sm">
+              <div className="card-body d-flex flex-column justify-content-center">
+                <h3 className="card-title h5 fw-bold text-dark border-bottom pb-2 mb-3">Duration</h3>
+                <div className="text-center py-3">
+                  <span className="h4 fw-bold text-primary">
+                    {selectedMonth.split(', ')[0].substring(0, 3)}-{selectedMonth.split(', ')[1]}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="col-xl-3 col-md-6">
+            <div className="card h-100 border-0 shadow-sm">
+              <div className="card-body">
+                <h3 className="card-title h5 fw-bold text-dark border-bottom pb-2 mb-3">Attendances</h3>
+                <div className="mt-4">
+                  <h4 className="h6 text-muted mb-2">Early leave</h4>
+                  <div className="d-flex justify-content-between align-items-center">
+                    <span className="text-muted">Total early leave in hours:</span>
+                    <span className="fw-bold text-dark">10.50</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="col-xl-4 col-md-6">
+            <div className="card h-100 border-0 shadow-sm">
+              <div className="card-body">
+                <h3 className="card-title h5 fw-bold text-dark border-bottom pb-2 mb-3">Attendances</h3>
+                <div className="mt-4">
+                  <h4 className="h6 text-muted mb-2">Employee late</h4>
+                  <div className="d-flex justify-content-between align-items-center">
+                    <span className="text-muted">Total late in hours:</span>
+                    <span className="fw-bold text-dark">7.30</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Buttons Row */}
+      <div className="d-flex flex-wrap gap-2 mb-4">
+        {buttons.map(button => (
+          <button 
+            key={button} 
+            className="btn btn-outline-secondary px-3 py-2"
+          >
+            {button}
+          </button>
+        ))}
+      </div>
+
+      {/* Attendance Table */}
+      <div className="card border-0 shadow-sm">
+        <div className="card-body">
+          <h3 className="card-title h5 fw-bold text-dark mb-3">Attendance Details</h3>
+          {(isLoading || attendanceLoading) ? (
+            <div className="text-center py-5">
+              <div className="spinner-border text-primary" role="status">
+                <span className="visually-hidden">Loading...</span>
+              </div>
+              <p className="mt-2 text-muted">Loading attendance data...</p>
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-bordered table-hover mb-0">
+                <thead className="table-light">
+                  <tr>
+                    <th scope="col" className="fw-semibold text-dark">NAME</th>
+                    {days.map(day => (
+                      <th key={day} scope="col" className="text-center fw-semibold text-dark">{day}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {attendanceData.map((employee, index) => (
+                    <tr key={employee.name + index}>
+                      <td className="fw-medium text-dark">{employee.name}</td>
+                      {employee.days.map((status, dayIndex) => (
+                        <td key={dayIndex} className="text-center align-middle">
+                          {status === 'P' ? (
+                            <span className="badge bg-success">P</span>
+                          ) : status === 'A' ? (
+                            <span className="badge bg-danger">A</span>
+                          ) : (
+                            <span className="text-muted">-</span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ManageMonthlyAttendance;
+
+
+
+
+
+
+
+
+
+
+

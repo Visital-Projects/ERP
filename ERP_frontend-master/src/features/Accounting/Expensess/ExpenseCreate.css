@@ -1,0 +1,102 @@
+.expense-create-radio-group {
+  gap: 30px;
+}
+
+.expense-create-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+  font-size: 1rem;
+}
+
+.expense-create-radio input[type="radio"] {
+  opacity: 0;
+  position: absolute;
+}
+
+.expense-create-radio-circle {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #02fd02;
+  border-radius: 50%;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.expense-create-radio input[type="radio"]:checked + .expense-create-radio-circle {
+  background-color: #02fd02;
+  box-shadow: inset 0 0 0 4px #fff;
+}
+
+.expense-create-radio:hover .expense-create-radio-circle {
+  border-color: #02fd02;
+}
+
+
+/* --- Draft Mode Enhancements --- */
+.draft-banner {
+  background: linear-gradient(90deg, #e3f2fd, #e1f5fe);
+  border-left: 4px solid #0d6efd;
+  padding: 12px 18px;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: #0d47a1;
+}
+
+.draft-row {
+  background-color: #fff8e1 !important;
+  transition: all 0.3s ease-in-out;
+}
+
+.draft-row:hover {
+  background-color: #ffecb3 !important;
+}
+
+.table-animate tbody tr {
+  animation: fadeIn 0.4s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Disabled button styling */
+.disabled-btn,
+button:disabled,
+button[disabled] {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(30%);
+  transition: all 0.3s ease;
+}
+
+/* Optional: Add a subtle tooltip effect on hover over disabled state */
+.disabled-btn:hover,
+button:disabled:hover,
+button[disabled]:hover {
+  opacity: 0.6 !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Style for the disabled edit button specifically */
+.btn-info.disabled-btn {
+  background-color: #0dcaf0 !important;
+  border-color: #0dcaf0 !important;
+}
+
+/* Override any Bootstrap hover effects for disabled buttons */
+.btn:disabled,
+.btn.disabled,
+.btn[disabled] {
+  pointer-events: none !important;
+  opacity: 0.6 !important;
+}

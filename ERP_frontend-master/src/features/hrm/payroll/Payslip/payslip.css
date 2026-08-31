@@ -1,0 +1,109 @@
+
+.payslip-modal-body {
+  background: #ffffff;
+  padding: 30px;
+}
+
+/* Main Payslip Container */
+.payslip-container {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 25px;
+  border: 1px solid #000;
+  font-family: Arial, sans-serif;
+  color: #000;
+}
+
+/* Header */
+.payslip-header {
+  text-align: center;
+  margin-bottom: 15px;
+}
+
+.payslip-header h5 {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.payslip-header p {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Employee Details */
+.payslip-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.payslip-details p {
+  margin: 2px 0;
+}
+
+/* ========================= */
+/* TABLE STYLING (FIXED SPLIT) */
+/* ========================= */
+
+.payslip-table-new {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  border: 1px solid #000;
+  table-layout: fixed;   /* IMPORTANT - forces equal layout */
+}
+
+/* Column Width Distribution */
+/* Earnings Label + Deduction Label */
+.payslip-table-new th:nth-child(1),
+.payslip-table-new td:nth-child(1),
+.payslip-table-new th:nth-child(3),
+.payslip-table-new td:nth-child(3) {
+  width: 35%;
+}
+
+/* Earnings Amount + Deduction Amount */
+.payslip-table-new th:nth-child(2),
+.payslip-table-new td:nth-child(2),
+.payslip-table-new th:nth-child(4),
+.payslip-table-new td:nth-child(4) {
+  width: 15%;
+}
+
+/* Header Row */
+.payslip-table-new thead tr {
+  border-bottom: 1px solid #000;
+  font-weight: bold;
+}
+
+/* Cell Padding */
+.payslip-table-new th,
+.payslip-table-new td {
+  padding: 6px;
+}
+
+/* Vertical Divider Between Earnings & Deductions */
+.payslip-table-new th:nth-child(3),
+.payslip-table-new td:nth-child(3) {
+  border-left: 1px solid #000;
+}
+
+/* Total Row */
+.payslip-total-row {
+  border-top: 1px solid #000;
+  font-weight: bold;
+}
+
+/* Net Pay Row */
+.payslip-net-row td {
+  border-top: 1px solid #000;
+  font-weight: bold;
+  padding-top: 8px;
+}
+
+/* Signature */
+.signature {
+  text-align: right;
+  padding-top: 25px;
+}

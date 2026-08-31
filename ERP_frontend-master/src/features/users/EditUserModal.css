@@ -1,0 +1,125 @@
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  /* background-color: rgba(0, 0, 0, 0.5); */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-content {
+  background: #fff !important;
+  border-radius: 12px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 793px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  animation: fadeIn 0.3s ease;
+}
+.modal-content h2 {
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+  color: #111827;
+}
+
+form label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.required {
+  color: red;
+  margin-left: 0.2rem;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="file"],
+select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease;
+}
+
+input:focus,
+select:focus {
+  border-color: #6366f1;
+  outline: none;
+}
+
+.avatar-preview {
+  display: block;
+  margin: 0.5rem 0 1rem;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.role-field {
+  margin-bottom: 1rem;
+}
+
+.role-select-wrapper {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.create-role-btn {
+  background-color: #e0e7ff;
+  color: #4338ca;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  border: none;
+  font-weight: 500;
+  transition: background-color 0.3s ease;
+}
+
+.create-role-btn:hover {
+  background-color: #c7d2fe;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.btn-success {
+  background-color: #22c55e;
+  color: #fff;
+}
+
+.btn-success:hover {
+  background-color: #16a34a;
+}
+
+.btn-secondary {
+  background-color: #e5e7eb;
+  color: #374151;
+}
+
+.btn-secondary:hover {
+  background-color: #d1d5db;
+}

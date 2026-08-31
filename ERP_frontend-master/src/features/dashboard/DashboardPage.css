@@ -1,0 +1,180 @@
+:root {
+  --bs-indigo: #6610f2;
+  --bs-teal: #20c997;
+  --bs-orange: #fd7e14;
+  --bs-cyan: #0dcaf0;
+}
+
+.dashboard-container {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.dashboard-header {
+  margin-bottom: 2rem;
+}
+
+.dashboard-title {
+  font-weight: 700;
+  color: #2c3e50;
+  margin-bottom: 0.25rem;
+}
+
+.dashboard-breadcrumb {
+  color: #7f8c8d;
+  font-size: 0.875rem;
+  margin-bottom: 0;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 1rem;
+  color: white;
+  font-size: 1.25rem;
+}
+
+.stat-content {
+  flex: 1;
+}
+
+.stat-title {
+  color: #7f8c8d;
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.stat-value {
+  font-weight: 700;
+  color: #2c3e50;
+  margin-bottom: 0;
+  font-size: 1.5rem;
+}
+
+.dashboard-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+@media (max-width: 768px) {
+  .dashboard-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.finance-card,
+.account-balance-card,
+.cashflow-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.card-title {
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 1.25rem;
+}
+
+.finance-comparison {
+  display: flex;
+  justify-content: space-between;
+}
+
+.income-section,
+.expense-section {
+  width: 48%;
+}
+
+.finance-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.finance-item.income .finance-icon {
+  color: var(--bs-success);
+}
+
+.finance-item.expense .finance-icon {
+  color: var(--bs-danger);
+}
+
+.finance-icon {
+  margin-right: 0.75rem;
+  font-size: 1.25rem;
+}
+
+.finance-period {
+  color: #7f8c8d;
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.finance-amount {
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 0;
+}
+
+.balance-table-container {
+  overflow-x: auto;
+}
+
+.balance-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.balance-table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  background-color: #f8f9fa;
+  color: #495057;
+  font-weight: 600;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.balance-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.cashflow-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: #adb5bd;
+}

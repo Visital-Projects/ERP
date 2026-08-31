@@ -1,0 +1,30 @@
+.salary-list-container {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+}
+
+.page-title {
+  font-weight: bold;
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.top-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.employee-id-badge {
+  border: 1px solid #00cc44;
+  color: #00cc44;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.table-footer {
+  margin-top: 10px;
+}

@@ -1,0 +1,110 @@
+.expense-create-radio-group {
+  gap: 30px;
+}
+
+.expense-create-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+  font-size: 1rem;
+}
+
+.expense-create-radio input[type="radio"] {
+  opacity: 0;
+  position: absolute;
+}
+
+.expense-create-radio-circle {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #02fd02;
+  border-radius: 50%;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.expense-create-radio input[type="radio"]:checked + .expense-create-radio-circle {
+  background-color: #02fd02;
+  box-shadow: inset 0 0 0 4px #fff;
+}
+
+.expense-create-radio:hover .expense-create-radio-circle {
+  border-color: #02fd02;
+}
+
+
+/* --- Draft Mode Enhancements --- */
+.draft-banner {
+  background: linear-gradient(90deg, #e3f2fd, #e1f5fe);
+  border-left: 4px solid #0d6efd;
+  padding: 12px 18px;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: #0d47a1;
+}
+
+.draft-row {
+  background-color: #fff8e1 !important;
+  transition: all 0.3s ease-in-out;
+}
+
+.draft-row:hover {
+  background-color: #ffecb3 !important;
+}
+
+.table-animate tbody tr {
+  animation: fadeIn 0.4s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Hide real radio */
+.green-radio .form-check-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Label base */
+.green-radio .form-check-label {
+  position: relative;
+  padding-left: 28px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+/* Outer green circle */
+.green-radio .form-check-label::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #00c853;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: #fff;
+}
+
+/* Inner filled dot */
+.green-radio .form-check-input:checked + .form-check-label::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  background: #00c853;
+  border-radius: 50%;
+  transform: translateY(-50%);
+}

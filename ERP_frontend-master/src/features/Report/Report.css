@@ -1,0 +1,58 @@
+.invoice-preview-modal .modal-content {
+  max-width: 100vw;   
+}
+/* hide the real radio */
+.green-radio .form-check-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* base label layout */
+.green-radio .form-check-label {
+  position: relative;
+  padding-left: 28px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+/* outer green circle */
+.green-radio .form-check-label::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #00c853;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: #fff;
+}
+
+/* inner filled dot (hidden by default) */
+.green-radio .form-check-input:checked + .form-check-label::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  background: #00c853;
+  border-radius: 50%;
+  transform: translateY(-50%);
+}
+/* Add to Report.css or create a new CSS file */
+.avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background-color: #4dc910;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 14px;
+}
+
