@@ -535,7 +535,8 @@ const ProformaBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit
                         placeholder="Qty"
                         value={service.quantity || 0}
                         onChange={(e) => handleServiceChange(idx, "quantity", e.target.value)}
-                        min={0}
+                        min="0.1"
+                        step="0.1"
                       />
                     </Form.Group>
                   </Col>
@@ -684,7 +685,7 @@ const ProformaBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit
             </div>
             <div className="text-center">
               <div className="text-muted small fw-bold">Grand Total</div>
-              <h4 className="mb-0 text-success fw-bold">₹{Math.round(summaryTotals.grandTotal).toLocaleString("en-IN")}</h4>
+              <h4 className="mb-0 text-success fw-bold">₹{summaryTotals.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
             </div>
           </div>
         </Form>

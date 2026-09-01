@@ -156,6 +156,17 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
     const newErrors = {};
     if (!formData.invoice_number?.trim()) newErrors.invoice_number = "Invoice number required";
     if (!formData.invoice_date) newErrors.invoice_date = "Invoice date required";
+
+    if (formData.services && formData.services.length > 0) {
+      for (let i = 0; i < formData.services.length; i++) {
+        const s = formData.services[i];
+        if (!s.service_name || !s.service_name.trim()) {
+          toast.error(`Service/Item #${i + 1} requires an Item/Service Description`);
+          return false;
+        }
+      }
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -172,7 +183,19 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
     if (field === "is_taxable") {
       normalizedValue = Boolean(value);
     } else if (["quantity", "rate", "cgst", "sgst", "igst"].includes(field)) {
-      normalizedValue = Number(value);
+      if (value === "") {
+        normalizedValue = "";
+      } else {
+        let str = String(value);
+        // If user typed numbers after a single leading 0 (e.g., '01241' -> '1241', '0884' -> '884', '010.5' -> '10.5')
+        // but preserve '0' or '0.' or '0.5'
+        if (/^0[0-9]+(.[0-9]*)?$/.test(str)) {
+          str = str.replace(/^0+/, '');
+          if (str.startsWith('.')) str = '0' + str;
+          if (str === '') str = '0';
+        }
+        normalizedValue = str;
+      }
     }
 
     services[index] = {
@@ -606,9 +629,10 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
                       <Form.Control
                         type="number"
                         placeholder="Qty"
-                        value={service.quantity || 0}
+                        value={service.quantity !== undefined && service.quantity !== null ? service.quantity : ""}
                         onChange={(e) => handleServiceChange(idx, "quantity", e.target.value)}
-                        min={0}
+                        min="0.1"
+                        step="0.1"
                       />
                     </Form.Group>
                   </Col>
@@ -618,7 +642,7 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
                       <Form.Control
                         type="number"
                         placeholder="Rate"
-                        value={service.rate || 0}
+                        value={service.rate !== undefined && service.rate !== null ? service.rate : ""}
                         onChange={(e) => handleServiceChange(idx, "rate", e.target.value)}
                         min={0}
                       />
@@ -672,38 +696,50 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
                       <option value="inclusive">Inclusive</option>
                     </Form.Select>
                   </Col>
-                  <Col xs={3} sm={2} md={1}>
-                    <Form.Control
-                      size="sm"
-                      type="number"
-                      placeholder="CGST %"
-                      value={service.cgst || 0}
-                      onChange={(e) => handleServiceChange(idx, "cgst", e.target.value)}
-                      min={0}
-                      title="CGST %"
-                    />
+                  <Col xs="auto">
+                    <div className="d-flex align-items-center gap-1">
+                      <span className="small fw-semibold text-nowrap text-secondary">CGST (%)</span>
+                      <Form.Control
+                        size="sm"
+                        type="number"
+                        placeholder="CGST %"
+                        value={service.cgst !== undefined && service.cgst !== null ? service.cgst : ""}
+                        onChange={(e) => handleServiceChange(idx, "cgst", e.target.value)}
+                        min={0}
+                        style={{ width: "65px" }}
+                        title="CGST (%)"
+                      />
+                    </div>
                   </Col>
-                  <Col xs={3} sm={2} md={1}>
-                    <Form.Control
-                      size="sm"
-                      type="number"
-                      placeholder="SGST %"
-                      value={service.sgst || 0}
-                      onChange={(e) => handleServiceChange(idx, "sgst", e.target.value)}
-                      min={0}
-                      title="SGST %"
-                    />
+                  <Col xs="auto">
+                    <div className="d-flex align-items-center gap-1">
+                      <span className="small fw-semibold text-nowrap text-secondary">SGST (%)</span>
+                      <Form.Control
+                        size="sm"
+                        type="number"
+                        placeholder="SGST %"
+                        value={service.sgst !== undefined && service.sgst !== null ? service.sgst : ""}
+                        onChange={(e) => handleServiceChange(idx, "sgst", e.target.value)}
+                        min={0}
+                        style={{ width: "65px" }}
+                        title="SGST (%)"
+                      />
+                    </div>
                   </Col>
-                  <Col xs={3} sm={2} md={1}>
-                    <Form.Control
-                      size="sm"
-                      type="number"
-                      placeholder="IGST %"
-                      value={service.igst || 0}
-                      onChange={(e) => handleServiceChange(idx, "igst", e.target.value)}
-                      min={0}
-                      title="IGST %"
-                    />
+                  <Col xs="auto">
+                    <div className="d-flex align-items-center gap-1">
+                      <span className="small fw-semibold text-nowrap text-secondary">IGST (%)</span>
+                      <Form.Control
+                        size="sm"
+                        type="number"
+                        placeholder="IGST %"
+                        value={service.igst !== undefined && service.igst !== null ? service.igst : ""}
+                        onChange={(e) => handleServiceChange(idx, "igst", e.target.value)}
+                        min={0}
+                        style={{ width: "65px" }}
+                        title="IGST (%)"
+                      />
+                    </div>
                   </Col>
                   <Col xs="auto" className="ms-auto d-flex align-items-center gap-3">
                     <div className="small text-muted">
@@ -793,7 +829,7 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
           </div>
           <div className="text-center flex-fill">
             <div className="text-muted small fw-semibold">Grand Total</div>
-            <h4 className="mb-0 text-success fw-bold">₹{Math.round(summaryTotals.grandTotal).toLocaleString("en-IN")}</h4>
+            <h4 className="mb-0 text-success fw-bold">₹{summaryTotals.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
           </div>
         </div>
 

@@ -297,7 +297,14 @@ const SaleInvoiceEdit = () => {
       navigate("/works/salebills");
     } catch (error) {
       console.error("Error updating sale bill:", error);
-      toast.error("Failed to update sale bill");
+      const apiMsg = error?.message || error?.response?.data?.message || "";
+      if (apiMsg.toLowerCase().includes("validation error") || apiMsg.toLowerCase().includes("unique")) {
+        toast.error("Invoice Number already exists! Please use a unique Invoice Number.");
+      } else if (apiMsg) {
+        toast.error(apiMsg);
+      } else {
+        toast.error("Failed to update sale bill");
+      }
     }
   };
 

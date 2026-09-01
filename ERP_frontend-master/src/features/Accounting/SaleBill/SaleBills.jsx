@@ -1183,7 +1183,7 @@ const SaleBills = () => {
                     <td></td>
                     <td></td>
                     <td></td>
-                    <td className="text-danger">₹{(Math.round(openingBalance) || 0).toLocaleString("en-IN")}</td>
+                    <td className="text-danger">₹{(Number(openingBalance) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td></td>
                   </tr>
                 )}
@@ -1214,11 +1214,11 @@ const SaleBills = () => {
                           </span>
                         </td>
                         <td>{branches.find((b) => String(b.id) === String(sb.assigned_to))?.name || sb.branch_name || "-"}</td>
-                        <td className="fw-bold">₹{(Math.round(totalAmount) || 0).toLocaleString("en-IN")}</td>
-                        <td className="text-success fw-bold">₹{(Math.round(received) || 0).toLocaleString("en-IN")}</td>
-                        <td className="text-muted fw-bold">₹{(Math.round(tds) || 0).toLocaleString("en-IN")}</td>
-                        <td className="text-muted fw-bold">₹{(Math.round(deduction) || 0).toLocaleString("en-IN")}</td>
-                        <td className="text-danger fw-bold">₹{(Math.round(difference) || 0).toLocaleString("en-IN")}</td>
+                        <td className="fw-bold">₹{(Number(totalAmount) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="text-success fw-bold">₹{(Number(received) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="text-muted fw-bold">₹{(Number(tds) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="text-muted fw-bold">₹{(Number(deduction) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="text-danger fw-bold">₹{(Number(difference) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td>
                           <div className="d-flex gap-1">
                             <Button variant="outline-primary" size="sm" onClick={() => openPaymentModal(sb)} title="Manage Payments">
@@ -1254,29 +1254,29 @@ const SaleBills = () => {
                   <td>
                     ₹{(filteredSaleBills.reduce((sum, sb) => {
                       const total = (sb.services || []).reduce((sSum, s) => sSum + Number(s.total_amount || (Number(s.rate || 0) * Number(s.quantity || 0))), 0);
-                      return sum + Math.round(total);
-                    }, 0) || 0).toLocaleString("en-IN")}
+                      return sum + total;
+                    }, 0) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="text-success">
                     ₹{(filteredSaleBills.reduce((sum, sb) => {
                       const summary = listPaymentSummaries[sb.id];
                       const received = Number(summary ? summary.total_received : (sb.received_amount || sb.total_received || 0));
-                      return sum + Math.round(received);
-                    }, 0) || 0).toLocaleString("en-IN")}
+                      return sum + received;
+                    }, 0) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="text-muted">
                     ₹{(filteredSaleBills.reduce((sum, sb) => {
                       const summary = listPaymentSummaries[sb.id];
                       const tds = Number(summary ? summary.total_tds : (sb.total_tds || sb.tds || 0));
-                      return sum + Math.round(tds);
-                    }, 0) || 0).toLocaleString("en-IN")}
+                      return sum + tds;
+                    }, 0) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="text-muted">
                     ₹{(filteredSaleBills.reduce((sum, sb) => {
                       const summary = listPaymentSummaries[sb.id];
                       const deduction = Number(summary ? summary.total_deductions : (sb.total_deductions || sb.deductions || 0));
-                      return sum + Math.round(deduction);
-                    }, 0) || 0).toLocaleString("en-IN")}
+                      return sum + deduction;
+                    }, 0) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="text-danger">
                     ₹{((filteredSaleBills.reduce((sum, sb) => {
@@ -1286,8 +1286,8 @@ const SaleBills = () => {
                       const tds = Number(summary ? summary.total_tds : (sb.total_tds || sb.tds || 0));
                       const deduction = Number(summary ? summary.total_deductions : (sb.total_deductions || sb.deductions || 0));
                       const diff = Number(summary ? (summary.bill_total - (summary.total_received || 0) - (summary.total_tds || 0) - (summary.total_deductions || 0) - (summary.advance_amount || 0)) : (total - received - tds - deduction));
-                      return sum + Math.round(diff);
-                    }, 0) || 0) + (startDateForOB ? Math.round(openingBalance) : 0)).toLocaleString("en-IN")}
+                      return sum + diff;
+                    }, 0) || 0) + (startDateForOB ? Number(openingBalance) : 0)).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td></td>
                 </tr>
