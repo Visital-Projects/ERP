@@ -173,7 +173,23 @@ const ProformaBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit
     if (field === "is_taxable") {
       normalizedValue = Boolean(value);
     } else if (["quantity", "rate", "cgst", "sgst", "igst"].includes(field)) {
-      normalizedValue = Number(value);
+      if (value === "") {
+        normalizedValue = "";
+      } else {
+        let str = String(value);
+        if (/^0[0-9]+(\.[0-9]*)?$/.test(str)) {
+          str = str.replace(/^0+/, '');
+          if (str.startsWith('.')) str = '0' + str;
+          if (str === '') str = '0';
+        }
+        if (field === "quantity" && str.includes('.')) {
+          const parts = str.split('.');
+          if (parts[1] && parts[1].length > 3) {
+            str = parts[0] + '.' + parts[1].slice(0, 3);
+          }
+        }
+        normalizedValue = str;
+      }
     }
 
     services[index] = {
@@ -533,10 +549,10 @@ const ProformaBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit
                       <Form.Control
                         type="number"
                         placeholder="Qty"
-                        value={service.quantity || 0}
+                        value={service.quantity !== undefined && service.quantity !== null ? service.quantity : ""}
                         onChange={(e) => handleServiceChange(idx, "quantity", e.target.value)}
-                        min="0.1"
-                        step="0.1"
+                        min="0.001"
+                        step="0.001"
                       />
                     </Form.Group>
                   </Col>
@@ -677,15 +693,15 @@ const ProformaBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit
           <div className="mt-4 p-3 bg-light rounded border d-flex justify-content-between align-items-center">
             <div className="text-center">
               <div className="text-muted small fw-bold">Subtotal (Taxable)</div>
-              <h5 className="mb-0">₹{summaryTotals.subTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h5>
+              <h5 className="mb-0">₹{summaryTotals.subTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</h5>
             </div>
             <div className="text-center">
               <div className="text-muted small fw-bold">Total Tax</div>
-              <h5 className="mb-0 text-danger">₹{summaryTotals.taxTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h5>
+              <h5 className="mb-0 text-danger">₹{summaryTotals.taxTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</h5>
             </div>
             <div className="text-center">
               <div className="text-muted small fw-bold">Grand Total</div>
-              <h4 className="mb-0 text-success fw-bold">₹{summaryTotals.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
+              <h4 className="mb-0 text-success fw-bold">₹{summaryTotals.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</h4>
             </div>
           </div>
         </Form>

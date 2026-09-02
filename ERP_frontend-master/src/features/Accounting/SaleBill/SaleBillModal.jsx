@@ -177,10 +177,16 @@ const SaleBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit }) 
         normalizedValue = "";
       } else {
         let str = String(value);
-        if (/^0[0-9]+(.[0-9]*)?$/.test(str)) {
+        if (/^0[0-9]+(\.[0-9]*)?$/.test(str)) {
           str = str.replace(/^0+/, '');
           if (str.startsWith('.')) str = '0' + str;
           if (str === '') str = '0';
+        }
+        if (field === "quantity" && str.includes('.')) {
+          const parts = str.split('.');
+          if (parts[1] && parts[1].length > 3) {
+            str = parts[0] + '.' + parts[1].slice(0, 3);
+          }
         }
         normalizedValue = str;
       }
@@ -676,8 +682,8 @@ const SaleBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit }) 
                           placeholder="Qty"
                           value={service.quantity !== undefined && service.quantity !== null ? service.quantity : ""}
                           onChange={(e) => handleServiceChange(idx, "quantity", e.target.value)}
-                          min="0.1"
-                          step="0.1"
+                          min="0.001"
+                          step="0.001"
                         />
                       </Form.Group>
                     </Col>
@@ -789,10 +795,10 @@ const SaleBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit }) 
                     </Col>
                     <Col xs="auto" className="ms-auto d-flex align-items-center gap-3">
                       <div className="small text-muted">
-                        Tax: <strong className="text-dark">₹{lineTax.toFixed(2)}</strong> ({totalTaxRate}%)
+                        Tax: <strong className="text-dark">₹{lineTax.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</strong> ({totalTaxRate}%)
                       </div>
                       <div className="small">
-                        Total: <strong className="text-success fs-6">₹{lineTotal.toFixed(2)}</strong>
+                        Total: <strong className="text-success fs-6">₹{lineTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</strong>
                       </div>
                     </Col>
                   </Row>
@@ -867,15 +873,15 @@ const SaleBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit }) 
           <div className="p-3 bg-light rounded border d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div className="text-center flex-fill">
               <div className="text-muted small fw-semibold">Subtotal (Taxable)</div>
-              <h6 className="mb-0 fw-bold">₹{summaryTotals.subTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h6>
+              <h6 className="mb-0 fw-bold">₹{summaryTotals.subTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</h6>
             </div>
             <div className="text-center flex-fill border-start border-end px-2">
               <div className="text-muted small fw-semibold">Total Tax</div>
-              <h6 className="mb-0 text-danger fw-bold">₹{summaryTotals.taxTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h6>
+              <h6 className="mb-0 text-danger fw-bold">₹{summaryTotals.taxTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</h6>
             </div>
             <div className="text-center flex-fill">
               <div className="text-muted small fw-semibold">Grand Total</div>
-              <h5 className="mb-0 text-success fw-bold">₹{summaryTotals.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h5>
+              <h5 className="mb-0 text-success fw-bold">₹{summaryTotals.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</h5>
             </div>
           </div>
         </Form>
