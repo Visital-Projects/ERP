@@ -4,6 +4,9 @@ import { toast } from "react-toastify";
 import { getBranches } from "../../../services/branchService";
 import categoryService from "../../../services/expenseCategory";
 import expenseService from "../../../services/expensessService";
+import vendorService from "../../../services/vendorService";
+import VendorAutocomplete from "./VendorAutocomplete";
+import Select from "react-select";
 
 const EditExpenseModal = ({ show, onHide, expense, onUpdated }) => {
   const toDateInputValue = (value) => {
@@ -25,6 +28,16 @@ const EditExpenseModal = ({ show, onHide, expense, onUpdated }) => {
     actual_bill_date: "",
     remark: "",
   });
+  const [vendorOptions, setVendorOptions] = useState([]);
+
+  useEffect(() => {
+    if (show) {
+      vendorService
+        .getAllVendors()
+        .then((data) => setVendorOptions(Array.isArray(data) ? data : []))
+        .catch((err) => console.error("Failed to load vendors:", err));
+    }
+  }, [show]);
 
   
   const [items, setItems] = useState([
@@ -178,18 +191,38 @@ const prefillItems =
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-if (!formData.remark || formData.remark.trim() === "") {
-  setRemarkError("Remark is mandatory while updating");
-  return;
-} else {
-  setRemarkError("");
-}
+    if (!formData.remark || formData.remark.trim() === "") {
+      setRemarkError("Remark is mandatory while updating");
+      return;
+    }
+    setRemarkError("");
+    if (!formData.description || formData.description.trim() === "") {
+      toast.warning("Vendor name is required");
+      return;
+    }
+    if (
+      vendorOptions.length > 0 &&
+      !vendorOptions.some(
+        (v) => (v.name || v.vendor_name || "").trim().toLowerCase() === formData.description.trim().toLowerCase()
+      )
+    ) {
+      toast.warning("Please select a valid existing vendor from the suggestions");
+      return;
+    }
+
     try {
+      const matchedVendor = vendorOptions.find(
+        (v) => (v.name || v.vendor_name || "").trim().toLowerCase() === formData.description?.trim().toLowerCase()
+      );
+      const finalVendorName = matchedVendor
+        ? (matchedVendor.name || matchedVendor.vendor_name)
+        : (formData.description || "").trim();
+
       const data = new FormData();
       data.append("branch_id", formData.branch_id);
       data.append("category_id", formData.category_id);
-      data.append("description", formData.description);
+      data.append("description", finalVendorName);
+      data.append("vendor_name", finalVendorName);
       data.append("type_of_supply_or_service", formData.type_of_supply_or_service || "");
       data.append("remark", formData.remark);
       data.append("actual_bill_date", formData.actual_bill_date);
@@ -305,14 +338,17 @@ if (!formData.remark || formData.remark.trim() === "") {
                       Vendor Name<span className="text-danger">*</span>
                     </strong>
                   </Form.Label>
-                  <Form.Control
-                    type="text"
+                  <VendorAutocomplete
                     value={formData.description}
-                    placeholder="Enter vendor name..."
-                    onChange={(e) =>
-                      setFormData({ ...formData, description: e.target.value })
+                    onChange={(name) =>
+                      setFormData({
+                        ...formData,
+                        description: name,
+                      })
                     }
-                    required
+                    vendors={vendorOptions}
+                    placeholder="Search vendor..."
+                    isInvalid={!formData.description?.trim()}
                   />
                 </Col>
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Table, Button, Modal, Form, Row, Col,OverlayTrigger, Tooltip } from "react-bootstrap";
-import { useNavigate } from "react-router-dom";
+import { Table, Button, Modal, Form, Row, Col, OverlayTrigger, Tooltip } from "react-bootstrap";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import branchwalletService from "../../../services/branchwalletService";
 import branchService from "../../../services/branchService";
 import BreadCrumb from "../../../components/BreadCrumb";
@@ -15,10 +15,18 @@ import {
   checkPeriodMatch,
   isPurchaseDeletionRefundTransaction,
   isDeletedPurchaseTransaction,
+  formatWalletTableAmount,
+  normalizeMonthValue,
+  getSavedWalletFilterState,
+  saveWalletFilterState,
+  resolveInitialBranchWalletFilter,
 } from "./walletAccountingHelpers";
 
 const BranchWallet = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [errorMessage, setErrorMessage] = useState("");
   const [wallets, setWallets] = useState([]);
   const [filteredWallets, setFilteredWallets] = useState([]);
@@ -44,12 +52,112 @@ const BranchWallet = () => {
   const [branchExpenses, setBranchExpenses] = useState([]);
   const [branchCreditPurchases, setBranchCreditPurchases] = useState([]);
   const [allWalletTransactions, setAllWalletTransactions] = useState([]);
-  const [periodType, setPeriodType] = useState("monthly"); // daily, weekly, monthly, fy, custom
-  const [filterValue, setFilterValue] = useState("");
-  const [monthValue, setMonthValue] = useState((new Date().getMonth() + 1).toString().padStart(2, "0"));
-  const [yearValue, setYearValue] = useState(new Date().getFullYear().toString());
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+
+  // Filter initialization following priority:
+  // 1. Existing URL/navigation state
+  // 2. Previously selected filter state
+  // 3. Existing application default
+  // 4. Current month/year only as final fallback
+  const initialFilter = resolveInitialBranchWalletFilter({
+    searchParams,
+    locationState: location.state,
+  });
+
+  const [periodType, setPeriodType] = useState(initialFilter.periodType); // daily, weekly, monthly, fy, custom
+  const [filterValue, setFilterValue] = useState(initialFilter.filterValue);
+  const [monthValue, setMonthValue] = useState(initialFilter.monthValue);
+  const [yearValue, setYearValue] = useState(initialFilter.yearValue);
+  const [startDate, setStartDate] = useState(initialFilter.startDate);
+  const [endDate, setEndDate] = useState(initialFilter.endDate);
+
+  // Sync state from searchParams when browser Back/Forward is used
+  useEffect(() => {
+    const urlMonthRaw = searchParams.get("month") || searchParams.get("monthValue");
+    const urlYearRaw = searchParams.get("year") || searchParams.get("yearValue");
+    const urlPeriodType = searchParams.get("periodType");
+    const urlFilterValue = searchParams.get("filterValue");
+    const urlStartDate = searchParams.get("startDate");
+    const urlEndDate = searchParams.get("endDate");
+
+    if (urlMonthRaw) {
+      const normMonth = normalizeMonthValue(urlMonthRaw);
+      if (normMonth && normMonth !== monthValue) {
+        setMonthValue(normMonth);
+      }
+    }
+    if (urlYearRaw && urlYearRaw !== yearValue) {
+      setYearValue(String(urlYearRaw));
+    }
+    if (urlPeriodType && urlPeriodType !== periodType) {
+      setPeriodType(urlPeriodType);
+    }
+    if (urlFilterValue !== null && urlFilterValue !== undefined && urlFilterValue !== filterValue) {
+      setFilterValue(urlFilterValue);
+    }
+    if (urlStartDate !== null && urlStartDate !== undefined && urlStartDate !== startDate) {
+      setStartDate(urlStartDate);
+    }
+    if (urlEndDate !== null && urlEndDate !== undefined && urlEndDate !== endDate) {
+      setEndDate(urlEndDate);
+    }
+  }, [searchParams]);
+
+  // Persist filter state to sessionStorage and keep URL searchParams synchronized
+  useEffect(() => {
+    saveWalletFilterState({
+      periodType,
+      monthValue,
+      yearValue,
+      filterValue,
+      startDate,
+      endDate,
+    });
+
+    const nextParams = new URLSearchParams();
+    if (periodType === "monthly") {
+      if (monthValue) nextParams.set("month", monthValue);
+      if (yearValue) nextParams.set("year", yearValue);
+      nextParams.set("periodType", "monthly");
+    } else if (periodType) {
+      nextParams.set("periodType", periodType);
+      if (filterValue) nextParams.set("filterValue", filterValue);
+      if (yearValue) nextParams.set("year", yearValue);
+      if (startDate) nextParams.set("startDate", startDate);
+      if (endDate) nextParams.set("endDate", endDate);
+    }
+
+    if (searchParams.toString() !== nextParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [periodType, monthValue, yearValue, filterValue, startDate, endDate]);
+
+  const openBranchTransactions = (branchId) => {
+    const queryParams = new URLSearchParams();
+    if (periodType === "monthly") {
+      if (monthValue) queryParams.set("month", monthValue);
+      if (yearValue) queryParams.set("year", yearValue);
+      queryParams.set("periodType", "monthly");
+    } else if (periodType) {
+      queryParams.set("periodType", periodType);
+      if (filterValue) queryParams.set("filterValue", filterValue);
+      if (yearValue) queryParams.set("year", yearValue);
+      if (startDate) queryParams.set("startDate", startDate);
+      if (endDate) queryParams.set("endDate", endDate);
+    }
+
+    const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : "";
+    navigate(`/accounting/branch-wallets/${branchId}/transactions${queryStr}`, {
+      state: {
+        periodType,
+        filterValue: periodType === "monthly" ? monthValue : filterValue,
+        monthValue,
+        yearValue,
+        startDate,
+        endDate,
+      },
+    });
+  };
+
 
   const getWalletDateValue = (tx) =>
     tx?.transaction_date || tx?.created_at || tx?.updated_at || tx?.payment_date || tx?.date || null;
@@ -139,7 +247,7 @@ const BranchWallet = () => {
 
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
-    if (periodType === "daily" || periodType === "weekly") {
+    if ((periodType === "daily" || periodType === "weekly") && !filterValue) {
       setFilterValue(today);
     }
   }, []);
@@ -383,6 +491,8 @@ const handleDeleteWallet = async (walletId) => {
     return latest ? Number(latest.balance_after || 0) : Number(fallbackBalance || 0);
   };
 
+  const formatWalletAmount = formatWalletTableAmount;
+
   return (
     <div className="container-fluid py-3 my-4">
       {/* Header Section */}
@@ -454,7 +564,7 @@ const handleDeleteWallet = async (walletId) => {
       >
         <div>
           <h3 className="fw-bold text-success mb-1">
-            ₹{displayCurrentBalance.toLocaleString("en-IN")}
+            {formatWalletAmount(displayCurrentBalance)}
           </h3>
           <small className="text-muted">Current Balance (Visible Sites)</small>
         </div>
@@ -663,7 +773,7 @@ const handleDeleteWallet = async (walletId) => {
             <thead className="table-light">
   <tr>
     <th>#</th>
-    <th>Site Name</th>
+    <th className="text-start" style={{ textAlign: "left" }}>Site Name</th>
     <th>Credited Amount (₹)</th>
     <th>Non GST Purchase (₹)</th>
     <th>GST Purchase (₹)</th>
@@ -678,23 +788,25 @@ const handleDeleteWallet = async (walletId) => {
       return (
       <tr key={wallet.id}>
         <td>{indexOfFirst + index + 1}</td>
-        <td style={{ cursor: "pointer" }}
-          onClick={() =>
-            navigate(`/accounting/branch-wallets/${wallet.branch_id}/transactions`)
-          }
+        <td
+          className="text-start"
+          style={{ cursor: "pointer", textAlign: "left" }}
+          onClick={() => openBranchTransactions(wallet.branch_id)}
         >
           {wallet.Branch?.name || `Branch ${wallet.branch_id}`}
         </td>
-        <td className="fw-bold text-success">
-          ₹{getBranchCreditAmount(wallet.branch_id).toLocaleString("en-IN")}
+        <td className="fw-bold text-success text-end" style={{ textAlign: "right" }}>
+          {formatWalletAmount(getBranchCreditAmount(wallet.branch_id))}
         </td>
-        <td className="fw-bold">
-          ₹{expensesData.nonGst.toLocaleString("en-IN")}
+        <td className="fw-bold text-end" style={{ textAlign: "right" }}>
+          {formatWalletAmount(expensesData.nonGst)}
         </td>
-        <td className="fw-bold">
-          ₹{expensesData.gst.toLocaleString("en-IN")}
+        <td className="fw-bold text-end" style={{ textAlign: "right" }}>
+          {formatWalletAmount(expensesData.gst)}
         </td>
-        <td className="fw-bold">₹{getBranchCurrentBalance(wallet.branch_id, wallet.balance_after).toLocaleString("en-IN")}</td>
+        <td className="fw-bold text-end" style={{ textAlign: "right" }}>
+          {formatWalletAmount(getBranchCurrentBalance(wallet.branch_id, wallet.balance_after))}
+        </td>
         <td>
           <OverlayTrigger
             placement="top"
@@ -703,9 +815,7 @@ const handleDeleteWallet = async (walletId) => {
             <Button
               size="sm"
               variant="warning"
-              onClick={() =>
-                navigate(`/accounting/branch-wallets/${wallet.branch_id}/transactions`)
-              }
+              onClick={() => openBranchTransactions(wallet.branch_id)}
             >
               <i className="bi bi-eye"></i>
             </Button>

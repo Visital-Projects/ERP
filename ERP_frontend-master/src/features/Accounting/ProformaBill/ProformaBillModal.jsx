@@ -146,9 +146,11 @@ const ProformaBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit
       return toWords(Math.floor(n / 10000000)) + " crore" + (n % 10000000 ? " " + toWords(n % 10000000) : "");
     };
 
-    const main = Math.floor(num);
-    const paise = Math.round((num - main) * 100);
-    let result = toWords(main) + " rupees";
+    const isNegative = num < 0;
+    const absNum = Math.abs(num);
+    const main = Math.floor(absNum);
+    const paise = Math.round((absNum - main) * 100);
+    let result = (isNegative ? "minus " : "") + toWords(main) + " rupees";
     if (paise > 0) result += " and " + toWords(paise) + " paise";
     return result + " only";
   };
@@ -177,18 +179,26 @@ const ProformaBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit
         normalizedValue = "";
       } else {
         let str = String(value);
-        if (/^0[0-9]+(\.[0-9]*)?$/.test(str)) {
-          str = str.replace(/^0+/, '');
-          if (str.startsWith('.')) str = '0' + str;
-          if (str === '') str = '0';
-        }
-        if (field === "quantity" && str.includes('.')) {
-          const parts = str.split('.');
-          if (parts[1] && parts[1].length > 3) {
-            str = parts[0] + '.' + parts[1].slice(0, 3);
+        if (str === "-" || str === "-0") {
+          normalizedValue = str;
+        } else {
+          if (/^0[0-9]+(\.[0-9]*)?$/.test(str)) {
+            str = str.replace(/^0+/, '');
+            if (str.startsWith('.')) str = '0' + str;
+            if (str === '') str = '0';
+          } else if (/^-0[0-9]+(\.[0-9]*)?$/.test(str)) {
+            str = '-' + str.slice(1).replace(/^0+/, '');
+            if (str === '-') str = '-0';
+            else if (str.startsWith('-.')) str = '-0.' + str.slice(2);
           }
+          if (["quantity", "rate"].includes(field) && str.includes('.')) {
+            const parts = str.split('.');
+            if (parts[1] && parts[1].length > 3) {
+              str = parts[0] + '.' + parts[1].slice(0, 3);
+            }
+          }
+          normalizedValue = str;
         }
-        normalizedValue = str;
       }
     }
 
@@ -562,9 +572,9 @@ const ProformaBillModal = ({ show, onHide, formData, setFormData, onSave, isEdit
                       <Form.Control
                         type="number"
                         placeholder="Rate"
-                        value={service.rate || 0}
+                        value={service.rate !== undefined && service.rate !== null ? service.rate : ""}
                         onChange={(e) => handleServiceChange(idx, "rate", e.target.value)}
-                        min={0}
+                        step="any"
                       />
                     </Form.Group>
                   </Col>

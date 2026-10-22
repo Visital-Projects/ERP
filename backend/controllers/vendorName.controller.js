@@ -210,24 +210,35 @@ exports.create = async (req, res) => {
         .json({ message: "Not allowed to create Vendor" });
     }
 
-    const { working_zone_id, name } = req.body;
-    if (!working_zone_id || !name) {
-      return res.status(400).json({ message: "working_zone_id & name are required" });
+    const { working_zone_id, name, address, phone } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: "Vendor name is required" });
     }
 
-    // Validate working zone belongs to same company
-    const zone = await WorkingZone.findOne({
-      where: { id: working_zone_id, created_by: companyId },
-    });
-    if (!zone) {
-      return res.status(400).json({
-        message: "Invalid working_zone_id for this company",
+    let finalWorkingZoneId = working_zone_id || null;
+    if (finalWorkingZoneId) {
+      const zone = await WorkingZone.findOne({
+        where: { id: finalWorkingZoneId, created_by: companyId },
       });
+      if (!zone) {
+        finalWorkingZoneId = null;
+      }
+    }
+
+    if (!finalWorkingZoneId) {
+      const zone = await WorkingZone.findOne({
+        where: { created_by: companyId },
+      });
+      if (zone) {
+        finalWorkingZoneId = zone.id;
+      }
     }
 
     const vendor = await VendorName.create({
-      working_zone: working_zone_id,
-      name,
+      working_zone: finalWorkingZoneId,
+      name: name.trim(),
+      address: address ? address.trim() : null,
+      phone: phone ? String(phone).trim() : null,
       created_by: companyId,
     });
 
@@ -249,7 +260,7 @@ exports.getAll = async (req, res) => {
 
     const vendors = await VendorName.findAll({
       where: { created_by: companyId },
-      include: { association: "workingZone", attributes: ["id", "name"] },
+      include: { association: "workingZone", attributes: ["id", "name"], required: false },
       order: [["id", "DESC"]],
     });
 
@@ -271,7 +282,7 @@ exports.getById = async (req, res) => {
 
     const vendor = await VendorName.findOne({
       where: { id: req.params.id, created_by: companyId },
-      include: { association: "workingZone", attributes: ["id", "name"] },
+      include: { association: "workingZone", attributes: ["id", "name"], required: false },
     });
 
     if (!vendor) {
@@ -300,7 +311,7 @@ exports.update = async (req, res) => {
         .json({ message: "Not allowed to update Vendor" });
     }
 
-    const { working_zone_id, name } = req.body;
+    const { working_zone_id, name, address, phone } = req.body;
 
     const vendor = await VendorName.findOne({
       where: { id: req.params.id, created_by: companyId },
@@ -313,21 +324,20 @@ exports.update = async (req, res) => {
       const zone = await WorkingZone.findOne({
         where: { id: working_zone_id, created_by: companyId },
       });
-      if (!zone) {
-        return res.status(400).json({
-          message: "Invalid working_zone_id for this company",
-        });
+      if (zone) {
+        vendor.working_zone = working_zone_id;
       }
-      vendor.working_zone = working_zone_id;
     }
 
-    if (name !== undefined) vendor.name = name;
+    if (name !== undefined) vendor.name = name.trim();
+    if (address !== undefined) vendor.address = address ? address.trim() : null;
+    if (phone !== undefined) vendor.phone = phone ? String(phone).trim() : null;
 
     await vendor.save();
 
     const updatedVendor = await VendorName.findOne({
       where: { id: vendor.id, created_by: companyId },
-      include: { association: "workingZone", attributes: ["id", "name"] },
+      include: { association: "workingZone", attributes: ["id", "name"], required: false },
     });
 
     res.json({ success: true, data: updatedVendor });

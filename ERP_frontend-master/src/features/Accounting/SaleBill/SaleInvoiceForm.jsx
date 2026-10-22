@@ -18,13 +18,16 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
       let cgst = service.cgst != null ? Number(service.cgst) : 0;
       let sgst = service.sgst != null ? Number(service.sgst) : 0;
       let igst = service.igst != null ? Number(service.igst) : 0;
+      let taxType = service.tax_type || (igst > 0 ? "IGST" : (cgst > 0 || sgst > 0) ? "CGST_SGST" : undefined);
 
       if (taxRate > 0 && cgst === 0 && sgst === 0 && igst === 0) {
-        if (Number(service.igst_amount) > 0) {
+        if (taxType === "IGST" || Number(service.igst_amount) > 0) {
           igst = taxRate;
-        } else if (Number(service.cgst_amount) > 0 || Number(service.sgst_amount) > 0) {
+          taxType = "IGST";
+        } else if (taxType === "CGST_SGST" || Number(service.cgst_amount) > 0 || Number(service.sgst_amount) > 0) {
           cgst = taxRate / 2;
           sgst = taxRate / 2;
+          taxType = "CGST_SGST";
         }
       }
 
@@ -41,6 +44,7 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
         cgst,
         sgst,
         igst,
+        tax_type: taxType,
         tax_rate: service.tax_rate != null ? Number(service.tax_rate) : taxRate,
       };
     });
@@ -145,9 +149,11 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
       return toWords(Math.floor(n / 10000000)) + " crore" + (n % 10000000 ? " " + toWords(n % 10000000) : "");
     };
 
-    const main = Math.floor(num);
-    const paise = Math.round((num - main) * 100);
-    let result = toWords(main) + " rupees";
+    const isNegative = num < 0;
+    const absNum = Math.abs(num);
+    const main = Math.floor(absNum);
+    const paise = Math.round((absNum - main) * 100);
+    let result = (isNegative ? "minus " : "") + toWords(main) + " rupees";
     if (paise > 0) result += " and " + toWords(paise) + " paise";
     return result + " only";
   };
@@ -187,20 +193,30 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
         normalizedValue = "";
       } else {
         let str = String(value);
-        // Remove unwanted leading zero when entering numbers (e.g. 05.5 -> 5.5, 01241 -> 1241, 012.234 -> 12.234)
-        if (/^0[0-9]+(\.[0-9]*)?$/.test(str)) {
-          str = str.replace(/^0+/, '');
-          if (str.startsWith('.')) str = '0' + str;
-          if (str === '') str = '0';
-        }
-        // Limit quantity to at most 3 decimal places if user typed more
-        if (field === "quantity" && str.includes('.')) {
-          const parts = str.split('.');
-          if (parts[1] && parts[1].length > 3) {
-            str = parts[0] + '.' + parts[1].slice(0, 3);
+        // Allow lone minus sign or minus zero while typing negative numbers
+        if (str === "-" || str === "-0") {
+          normalizedValue = str;
+        } else {
+          // Remove unwanted leading zero when entering positive numbers (e.g. 05.5 -> 5.5, 01241 -> 1241, 012.234 -> 12.234)
+          if (/^0[0-9]+(\.[0-9]*)?$/.test(str)) {
+            str = str.replace(/^0+/, '');
+            if (str.startsWith('.')) str = '0' + str;
+            if (str === '') str = '0';
+          } else if (/^-0[0-9]+(\.[0-9]*)?$/.test(str)) {
+            // Remove unwanted leading zero when entering negative numbers (e.g. -05.5 -> -5.5, -08 -> -8)
+            str = '-' + str.slice(1).replace(/^0+/, '');
+            if (str === '-') str = '-0';
+            else if (str.startsWith('-.')) str = '-0.' + str.slice(2);
           }
+          // Limit quantity and rate to at most 3 decimal places if user typed more
+          if (["quantity", "rate"].includes(field) && str.includes('.')) {
+            const parts = str.split('.');
+            if (parts[1] && parts[1].length > 3) {
+              str = parts[0] + '.' + parts[1].slice(0, 3);
+            }
+          }
+          normalizedValue = str;
         }
-        normalizedValue = str;
       }
     }
 
@@ -603,7 +619,7 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
                       />
                     </Form.Group>
                   </Col>
-                  <Col lg={2} md={4} sm={4}>
+                  <Col lg={1} md={4} sm={3}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold mb-1">HSN/SAC</Form.Label>
                       <Form.Control
@@ -613,7 +629,7 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
                       />
                     </Form.Group>
                   </Col>
-                  <Col lg={2} md={4} sm={4}>
+                  <Col lg={1} md={4} sm={3}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold mb-1">Unit</Form.Label>
                       <Form.Select
@@ -629,7 +645,7 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
                       </Form.Select>
                     </Form.Group>
                   </Col>
-                  <Col lg={1} md={2} sm={2}>
+                  <Col lg={2} md={4} sm={3}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold mb-1">Qty</Form.Label>
                       <Form.Control
@@ -642,7 +658,7 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
                       />
                     </Form.Group>
                   </Col>
-                  <Col lg={1} md={2} sm={2}>
+                  <Col lg={2} md={4} sm={3}>
                     <Form.Group>
                       <Form.Label className="small fw-semibold mb-1">Rate</Form.Label>
                       <Form.Control
@@ -650,7 +666,7 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
                         placeholder="Rate"
                         value={service.rate !== undefined && service.rate !== null ? service.rate : ""}
                         onChange={(e) => handleServiceChange(idx, "rate", e.target.value)}
-                        min={0}
+                        step="any"
                       />
                     </Form.Group>
                   </Col>
@@ -749,10 +765,10 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
                   </Col>
                   <Col xs="auto" className="ms-auto d-flex align-items-center gap-3">
                     <div className="small text-muted">
-                      Tax: <strong className="text-dark">₹{lineTax.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</strong> ({totalTaxRate}%)
+                      Tax: <strong className="text-dark">₹{lineTax.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> ({totalTaxRate}%)
                     </div>
                     <div className="small">
-                      Total: <strong className="text-success fs-6">₹{lineTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</strong>
+                      Total: <strong className="text-success fs-6">₹{lineTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                     </div>
                   </Col>
                 </Row>
@@ -827,15 +843,15 @@ const SaleInvoiceForm = ({ formData, setFormData, onSave, onCancel, isEdit }) =>
         <div className="p-4 mb-4 bg-light rounded border d-flex flex-wrap justify-content-between align-items-center gap-3">
           <div className="text-center flex-fill">
             <div className="text-muted small fw-semibold">Subtotal (Taxable)</div>
-            <h5 className="mb-0 fw-bold">₹{summaryTotals.subTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</h5>
+            <h5 className="mb-0 fw-bold">₹{summaryTotals.subTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h5>
           </div>
           <div className="text-center flex-fill border-start border-end px-3">
             <div className="text-muted small fw-semibold">Total Tax</div>
-            <h5 className="mb-0 text-danger fw-bold">₹{summaryTotals.taxTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</h5>
+            <h5 className="mb-0 text-danger fw-bold">₹{summaryTotals.taxTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h5>
           </div>
           <div className="text-center flex-fill">
             <div className="text-muted small fw-semibold">Grand Total</div>
-            <h4 className="mb-0 text-success fw-bold">₹{summaryTotals.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</h4>
+            <h4 className="mb-0 text-success fw-bold">₹{Math.round(summaryTotals.grandTotal).toLocaleString("en-IN")}</h4>
           </div>
         </div>
 

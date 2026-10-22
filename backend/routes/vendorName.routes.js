@@ -61,7 +61,6 @@ router.post(
 router.get(
     '/',
     auth,
-    authorize('manage vendor'),
     vendorNameController.getAll
 );
 

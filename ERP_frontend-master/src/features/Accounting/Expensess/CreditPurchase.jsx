@@ -22,7 +22,10 @@ import CreditPurchaseModal from "./CreditPurchaseModal";
 import ViewCredDocumentsModal from "./ViewCredDocumentsModal";
 import BreadCrumb from "../../../components/BreadCrumb";
 import ConfirmDeleteModal from "../../../components/ConfirmDeleteModal";
-import { redirectToRepresentativeBranchWallet } from "../Banking/walletAccountingHelpers";
+import {
+  redirectToRepresentativeBranchWallet,
+  matchesAmountSearch,
+} from "../Banking/walletAccountingHelpers";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -46,6 +49,43 @@ const formatDate = (dateStr) => {
   const d = new Date(dateStr);
   return Number.isNaN(d.getTime()) ? "-" : d.toLocaleDateString("en-GB");
 };
+
+function formatPurchaseAmount(value) {
+  return Math.round(Number(value) || 0).toLocaleString("en-IN", {
+    maximumFractionDigits: 0,
+  });
+}
+
+function recalculatePurchaseTotals(cp) {
+  let subtotalBase = 0;
+  let taxTotal = 0;
+  let totalAmount = 0;
+
+  const items = Array.isArray(cp?.items) ? cp.items : [];
+  items.forEach((item) => {
+    const sub = parseFloat(item.subtotal || 0);
+    const rate = parseFloat(item.tax_rate || 0);
+    const isTaxable = item.is_taxable !== false;
+
+    let itemBase = sub;
+    let itemTax = 0;
+    let itemTotal = sub;
+
+    if (isTaxable && rate > 0) {
+      // Note: Backend stores the BASE amount in 'subtotal'. 
+      // Tax and Total are calculated based on this base.
+      itemTax = sub * (rate / 100);
+      itemBase = sub;
+      itemTotal = sub + itemTax;
+    }
+
+    subtotalBase += itemBase;
+    taxTotal += itemTax;
+    totalAmount += itemTotal;
+  });
+
+  return { subtotalBase, taxTotal, totalAmount };
+}
 
 const CreditPurchase = () => {
   const location = useLocation();
@@ -72,6 +112,7 @@ const CreditPurchase = () => {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewData, setPreviewData] = useState([]);
   const [vendorSearch, setVendorSearch] = useState("");
+  const [amountSearch, setAmountSearch] = useState("");
 
 const [dateFilterType, setDateFilterType] = useState("all");
 const [selectedDate, setSelectedDate] = useState("");
@@ -357,6 +398,15 @@ const filteredPurchases = creditPurchases.filter((cp) => {
       return false;
   }
 
+  // 6️⃣ Amount search
+  if (amountSearch) {
+    const { totalAmount } = recalculatePurchaseTotals(cp);
+    const resolvedTotal = totalAmount || Number(cp.total_amount || cp.total || 0);
+    if (!matchesAmountSearch(resolvedTotal, amountSearch)) {
+      return false;
+    }
+  }
+
   return true;
 });
 
@@ -496,36 +546,6 @@ const sheetData = [
   const indexOfFirst = indexOfLast - entriesPerPage;
   const currentPurchases = sortedPurchases.slice(indexOfFirst, indexOfLast);
   const totalPages = Math.ceil(sortedPurchases.length / entriesPerPage) || 1;
-const recalculatePurchaseTotals = (cp) => {
-  let subtotalBase = 0;
-  let taxTotal = 0;
-  let totalAmount = 0;
-
-  const items = Array.isArray(cp.items) ? cp.items : [];
-  items.forEach((item) => {
-    const sub = parseFloat(item.subtotal || 0);
-    const rate = parseFloat(item.tax_rate || 0);
-    const isTaxable = item.is_taxable !== false;
-
-    let itemBase = sub;
-    let itemTax = 0;
-    let itemTotal = sub;
-
-    if (isTaxable && rate > 0) {
-      // Note: Backend stores the BASE amount in 'subtotal'. 
-      // Tax and Total are calculated based on this base.
-      itemTax = sub * (rate / 100);
-      itemBase = sub;
-      itemTotal = sub + itemTax;
-    }
-
-    subtotalBase += itemBase;
-    taxTotal += itemTax;
-    totalAmount += itemTotal;
-  });
-
-  return { subtotalBase, taxTotal, totalAmount };
-};
 
 const calculateTotals = (purchases) => {
   return purchases.reduce(
@@ -568,12 +588,6 @@ const calculateExtraTotals = (purchases) => {
 };
 
 const extraTotals = calculateExtraTotals(filteredPurchases);
-const formatINR = (value) => {
-  return Number(value || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-};
 
 
 
@@ -591,185 +605,235 @@ const formatINR = (value) => {
         </OverlayTrigger>
       </div>
 
+      {/* SECTION 1 — FILTER / SEARCH BAR */}
+      <Card className="p-3 mb-4 shadow-sm">
+        {/* Controls and Filter Bar */}
+        <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
+          {/* Entries per page */}
+          <div className="d-flex align-items-center">
+            <Form.Select
+              value={entriesPerPage}
+              onChange={(e) => {
+                setEntriesPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              style={{ width: "80px", height: "38px" }}
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </Form.Select>
+          </div>
+
+          {/* Right-aligned controls */}
+          <div className="d-flex align-items-center flex-wrap gap-2 ms-auto">
+            <Form.Select
+              value={taxableFilter}
+              onChange={(e) => setTaxableFilter(e.target.value)}
+              style={{ width: "110px", height: "38px" }}
+            >
+              <option value="all">All</option>
+              <option value="taxable">Taxable</option>
+              <option value="non-taxable">Non-Taxable</option>
+            </Form.Select>
+
+            <Form.Select
+              value={dateFilterBasis}
+              onChange={(e) => {
+                setDateFilterBasis(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{ width: "110px", height: "38px" }}
+            >
+              <option value="billDate">Bill Date</option>
+              <option value="entryDate">Entry Date</option>
+            </Form.Select>
+
+            <Form.Select
+              value={dateFilterType}
+              onChange={(e) => {
+                setDateFilterType(e.target.value);
+                setSelectedDate("");
+                setSelectedMonth("");
+                setStartDate("");
+                setEndDate("");
+              }}
+              style={{ width: "115px", height: "38px" }}
+            >
+              <option value="all">All Dates</option>
+              <option value="daily">Daily</option>
+              <option value="monthly">Monthly</option>
+              <option value="custom">Custom Range</option>
+            </Form.Select>
+
+            {dateFilterType === "daily" && (
+              <Form.Control
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                style={{ width: "135px", height: "38px" }}
+              />
+            )}
+
+            {dateFilterType === "monthly" && (
+              <Form.Select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                style={{ width: "135px", height: "38px" }}
+              >
+                <option value="">Select Month</option>
+                <option value="01">January</option>
+                <option value="02">February</option>
+                <option value="03">March</option>
+                <option value="04">April</option>
+                <option value="05">May</option>
+                <option value="06">June</option>
+                <option value="07">July</option>
+                <option value="08">August</option>
+                <option value="09">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+              </Form.Select>
+            )}
+
+            {dateFilterType === "custom" && (
+              <div className="d-flex align-items-center gap-1 flex-nowrap">
+                <Form.Control
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  style={{ width: "125px", height: "38px" }}
+                />
+                <Form.Control
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  style={{ width: "125px", height: "38px" }}
+                />
+              </div>
+            )}
+
+            <div style={{ width: "150px" }}>
+              <Select
+                value={
+                  [
+                    { value: "", label: "All Sites" },
+                    ...branches.map((branch) => ({
+                      value: branch.id,
+                      label: branch.name,
+                    })),
+                  ].find((opt) => String(opt.value) === String(siteFilter)) || {
+                    value: "",
+                    label: "All Sites",
+                  }
+                }
+                onChange={(selected) => {
+                  setSiteFilter(selected ? selected.value : "");
+                  setCurrentPage(1);
+                }}
+                options={[
+                  { value: "", label: "All Sites" },
+                  ...branches.map((branch) => ({
+                    value: branch.id,
+                    label: branch.name,
+                  })),
+                ]}
+                isSearchable={true}
+                placeholder="All Sites"
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    minHeight: "38px",
+                    height: "38px",
+                  }),
+                  valueContainer: (base) => ({
+                    ...base,
+                    padding: "0 8px",
+                  }),
+                  indicatorsContainer: (base) => ({
+                    ...base,
+                    height: "38px",
+                  }),
+                }}
+              />
+            </div>
+
+            <Form.Select
+              value={paymentHeadFilter}
+              onChange={(e) => {
+                setPaymentHeadFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{ width: "150px", height: "38px" }}
+            >
+              <option value="">All Descriptions</option>
+              {categories.map((head) => (
+                <option key={head.id} value={head.id}>
+                  {head.name}
+                </option>
+              ))}
+            </Form.Select>
+
+            {/* Vendor search & Amount search (side by side in flex-nowrap) */}
+            <div className="d-flex align-items-center gap-2 flex-nowrap">
+              <Form.Control
+                type="text"
+                placeholder="Search Vendor..."
+                value={vendorSearch}
+                onChange={(e) => {
+                  setVendorSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="m-0"
+                style={{ width: "135px", height: "38px" }}
+              />
+
+              <Form.Control
+                type="text"
+                placeholder="Search Amount..."
+                value={amountSearch}
+                onChange={(e) => {
+                  setAmountSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="m-0"
+                style={{ width: "135px", height: "38px" }}
+              />
+            </div>
+
+            <Dropdown>
+              <Dropdown.Toggle
+                variant="success"
+                className="d-flex align-items-center gap-1"
+                style={{ height: "38px" }}
+              >
+                <Download className="me-1" /> Export
+              </Dropdown.Toggle>
+
+              <Dropdown.Menu>
+                <Dropdown.Item onClick={handleDownloadCreditExcel}>
+                  Download Excel
+                </Dropdown.Item>
+                <Dropdown.Item onClick={handleDownloadCreditPDF}>
+                  Download PDF
+                </Dropdown.Item>
+              </Dropdown.Menu>
+            </Dropdown>
+          </div>
+        </div>
+      </Card>
+
+      {/* SECTION 2 — TABLE */}
       <Card className="p-4 shadow-sm">
-<Row className="align-items-center justify-content-between mb-5 flex-wrap">
-  <Col md={1}>
-    <Form.Select
-      value={entriesPerPage}
-      onChange={(e) => {
-        setEntriesPerPage(Number(e.target.value));
-        setCurrentPage(1);
-      }}
-    >
-      <option value={10}>10</option>
-      <option value={25}>25</option>
-      <option value={50}>50</option>
-      <option value={100}>100</option>
-    </Form.Select>
-  </Col>
-
-  {/* Right-aligned controls */}
-  <Col md="auto" className="ms-auto d-flex align-items-center gap-2">
-    <Form.Select
-      value={taxableFilter}
-      onChange={(e) => setTaxableFilter(e.target.value)}
-    >
-      <option value="all">All</option>
-      <option value="taxable">Taxable</option>
-      <option value="non-taxable">Non-Taxable</option>
-    </Form.Select>
-    <Form.Select
-      value={dateFilterBasis}
-      onChange={(e) => {
-        setDateFilterBasis(e.target.value);
-        setCurrentPage(1);
-      }}
-    >
-      <option value="billDate">Bill Date</option>
-      <option value="entryDate">Entry Date</option>
-    </Form.Select>
-    <Form.Select
-  value={dateFilterType}
-  onChange={(e) => {
-    setDateFilterType(e.target.value);
-    setSelectedDate("");
-    setSelectedMonth("");
-    setStartDate("");
-    setEndDate("");
-  }}
->
-  <option value="all">All Dates</option>
-  <option value="daily">Daily</option>
-  <option value="monthly">Monthly</option>
-  <option value="custom">Custom Range</option>
-</Form.Select>
-{dateFilterType === "daily" && (
-  <Form.Control
-    type="date"
-    value={selectedDate}
-    onChange={(e) => setSelectedDate(e.target.value)}
-  />
-)}
-
-{dateFilterType === "monthly" && (
-  <Form.Select
-    value={selectedMonth}
-    onChange={(e) => setSelectedMonth(e.target.value)}
-  >
-    <option value="">Select Month</option>
-    <option value="01">January</option>
-    <option value="02">February</option>
-    <option value="03">March</option>
-    <option value="04">April</option>
-    <option value="05">May</option>
-    <option value="06">June</option>
-    <option value="07">July</option>
-    <option value="08">August</option>
-    <option value="09">September</option>
-    <option value="10">October</option>
-    <option value="11">November</option>
-    <option value="12">December</option>
-  </Form.Select>
-)}
-
-{dateFilterType === "custom" && (
-  <div className="d-flex gap-2">
-    <Form.Control
-      type="date"
-      value={startDate}
-      onChange={(e) => setStartDate(e.target.value)}
-    />
-    <Form.Control
-      type="date"
-      value={endDate}
-      onChange={(e) => setEndDate(e.target.value)}
-    />
-  </div>
-)}
-
-    <div style={{ minWidth: "200px" }}>
-      <Select
-        value={
-          [
-            { value: "", label: "All Sites" },
-            ...branches.map((branch) => ({
-              value: branch.id,
-              label: branch.name,
-            })),
-          ].find((opt) => String(opt.value) === String(siteFilter)) || {
-            value: "",
-            label: "All Sites",
-          }
-        }
-        onChange={(selected) => {
-          setSiteFilter(selected ? selected.value : "");
-          setCurrentPage(1);
-        }}
-        options={[
-          { value: "", label: "All Sites" },
-          ...branches.map((branch) => ({
-            value: branch.id,
-            label: branch.name,
-          })),
-        ]}
-        isSearchable={true}
-        placeholder="Search Site"
-      />
-    </div>
-
-    <Form.Select
-      value={paymentHeadFilter}
-      onChange={(e) => {
-        setPaymentHeadFilter(e.target.value);
-        setCurrentPage(1);
-      }}
-      style={{ minWidth: "200px" }}
-    >
-      <option value="">All Descriptions</option>
-      {categories.map((head) => (
-        <option key={head.id} value={head.id}>
-          {head.name}
-        </option>
-      ))}
-    </Form.Select>
-
-    <Form.Control
-      type="text"
-      placeholder="Search Vendor..."
-      value={vendorSearch}
-      onChange={(e) => {
-        setVendorSearch(e.target.value);
-        setCurrentPage(1);
-      }}
-      className="m-0"
-      style={{ maxWidth: "200px", height: "38px" }}
-    />
-
-    <Dropdown>
-      <Dropdown.Toggle size="sm" variant="success">
-        <Download />
-      </Dropdown.Toggle>
-
-      <Dropdown.Menu>
-        <Dropdown.Item onClick={handleDownloadCreditExcel}>
-          Download Excel
-        </Dropdown.Item>
-        <Dropdown.Item onClick={handleDownloadCreditPDF}>
-          Download PDF
-        </Dropdown.Item>
-      </Dropdown.Menu>
-    </Dropdown>
-  </Col>
-</Row>
-
-
-<div className="table-responsive">
-  <Table hover striped className="text-center">
+        <div className="table-responsive">
+          <Table hover striped className="text-center">
     <thead className="table-light">
       <tr>
         <th>Transaction Date</th>
-        <th>Site</th>
-        <th>Vendor</th>
+        <th className="text-start" style={{ textAlign: "left" }}>Site</th>
+        <th className="text-start" style={{ textAlign: "left" }}>Vendor</th>
         <th>Total Amount (₹)</th>
         <th>Tax</th>
         <th>Bill Date</th>
@@ -804,7 +868,9 @@ const formatINR = (value) => {
             <td>{formatDate(cp.createdAt)}</td>
 
             <td
+              className="text-start"
               style={{
+                textAlign: "left",
                 maxWidth: "180px",
                 whiteSpace: "normal",
                 wordBreak: "break-word",
@@ -815,7 +881,9 @@ const formatINR = (value) => {
             </td>
 
             <td
+              className="text-start"
               style={{
+                textAlign: "left",
                 maxWidth: "180px",
                 whiteSpace: "normal",
                 wordBreak: "break-word",
@@ -825,8 +893,12 @@ const formatINR = (value) => {
               {cp.vendor_name}
             </td>
 
-            <td>₹{formatINR(recalculatePurchaseTotals(cp).totalAmount)}</td>
-            <td>₹{formatINR(recalculatePurchaseTotals(cp).taxTotal)}</td>
+            <td className="text-end" style={{ textAlign: "right" }}>
+              {formatPurchaseAmount(recalculatePurchaseTotals(cp).totalAmount)}
+            </td>
+            <td className="text-end" style={{ textAlign: "right" }}>
+              {formatPurchaseAmount(recalculatePurchaseTotals(cp).taxTotal)}
+            </td>
             <td>{formatDate(cp.actual_bill_date)}</td>
             <td>{cp.type_of_supply_or_service}</td>
 
@@ -1003,12 +1075,16 @@ const formatINR = (value) => {
 
     <tfoot>
       <tr className="table-light fw-bold">
-        <td colSpan={7} className="text-end">
+        <td colSpan={3} className="text-end">
           Total:
         </td>
-        <td>₹{filteredTotals.totalAmount.toLocaleString("en-IN")}</td>
-        <td>₹{filteredTotals.totalTax.toLocaleString("en-IN")}</td>
-        <td colSpan={2}></td>
+        <td className="text-end" style={{ textAlign: "right" }}>
+          {formatPurchaseAmount(filteredTotals.totalAmount)}
+        </td>
+        <td className="text-end" style={{ textAlign: "right" }}>
+          {formatPurchaseAmount(filteredTotals.totalTax)}
+        </td>
+        <td colSpan={4}></td>
       </tr>
     </tfoot>
   </Table>

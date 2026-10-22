@@ -27,6 +27,7 @@ import EditExpenseModal from "./EditExpenseModal";
 import ViewExpenseModal from "./ViewExpensedetails";
 import PdfViewerModal from "./PdfViewerModal";
 import PreviewExpenseModal from "./PreviewModal";
+import { matchesAmountSearch } from "../Banking/walletAccountingHelpers";
 
 const formatDate = (dateStr) => {
   if (!dateStr) return "-";
@@ -44,10 +45,9 @@ const formatDate = (dateStr) => {
   return Number.isNaN(d.getTime()) ? "-" : d.toLocaleDateString("en-GB");
 };
 
-const formatINR = (value) => {
-  return Number(value || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+const formatPurchaseAmount = (value) => {
+  return Math.round(Number(value) || 0).toLocaleString("en-IN", {
+    maximumFractionDigits: 0,
   });
 };
 
@@ -121,6 +121,7 @@ const Expenses = () => {
   const [siteFilter, setSiteFilter] = useState("");
   const [paymentHeadFilter, setPaymentHeadFilter] = useState("");
   const [vendorSearch, setVendorSearch] = useState("");
+  const [amountSearch, setAmountSearch] = useState("");
   const [dateFilterType, setDateFilterType] = useState("all");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedMonth, setSelectedMonth] = useState("");
@@ -269,6 +270,15 @@ const Expenses = () => {
           return false;
       }
 
+      // 6. Amount search
+      if (amountSearch) {
+        const { totalAmount } = recalculateExpenseTotals(exp);
+        const resolvedTotal = totalAmount || Number(exp.total_amount || exp.total || 0);
+        if (!matchesAmountSearch(resolvedTotal, amountSearch)) {
+          return false;
+        }
+      }
+
       return true;
     });
   }, [
@@ -283,6 +293,7 @@ const Expenses = () => {
     startDate,
     endDate,
     vendorSearch,
+    amountSearch,
   ]);
 
   const sortedExpenses = useMemo(() => {
@@ -400,35 +411,36 @@ const Expenses = () => {
         </OverlayTrigger>
       </div>
 
-      <Card className="p-4 shadow-sm">
+      {/* SECTION 1 — FILTER / SEARCH BAR */}
+      <Card className="p-3 mb-4 shadow-sm">
         {/* Controls and Filter Bar */}
-        <Row className="align-items-center justify-content-between mb-4 flex-wrap g-2">
+        <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
           {/* Entries per page */}
-          <Col md="auto">
+          <div className="d-flex align-items-center">
             <Form.Select
               value={entriesPerPage}
               onChange={(e) => {
                 setEntriesPerPage(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              style={{ width: "90px" }}
+              style={{ width: "80px", height: "38px" }}
             >
               <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
             </Form.Select>
-          </Col>
+          </div>
 
           {/* Filters */}
-          <Col md="auto" className="ms-auto d-flex align-items-center flex-wrap gap-2">
+          <div className="d-flex align-items-center flex-wrap gap-2 ms-auto">
             <Form.Select
               value={taxableFilter}
               onChange={(e) => {
                 setTaxableFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ width: "130px" }}
+              style={{ width: "110px", height: "38px" }}
             >
               <option value="all">All</option>
               <option value="taxable">Taxable</option>
@@ -441,7 +453,7 @@ const Expenses = () => {
                 setDateFilterBasis(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ width: "130px" }}
+              style={{ width: "110px", height: "38px" }}
             >
               <option value="billDate">Bill Date</option>
               <option value="entryDate">Entry Date</option>
@@ -457,7 +469,7 @@ const Expenses = () => {
                 setEndDate("");
                 setCurrentPage(1);
               }}
-              style={{ width: "140px" }}
+              style={{ width: "115px", height: "38px" }}
             >
               <option value="all">All Dates</option>
               <option value="daily">Daily</option>
@@ -473,7 +485,7 @@ const Expenses = () => {
                   setSelectedDate(e.target.value);
                   setCurrentPage(1);
                 }}
-                style={{ width: "150px" }}
+                style={{ width: "135px", height: "38px" }}
               />
             )}
 
@@ -484,7 +496,7 @@ const Expenses = () => {
                   setSelectedMonth(e.target.value);
                   setCurrentPage(1);
                 }}
-                style={{ width: "150px" }}
+                style={{ width: "135px", height: "38px" }}
               >
                 <option value="">Select Month</option>
                 <option value="01">January</option>
@@ -503,7 +515,7 @@ const Expenses = () => {
             )}
 
             {dateFilterType === "custom" && (
-              <div className="d-flex gap-1">
+              <div className="d-flex align-items-center gap-1 flex-nowrap">
                 <Form.Control
                   type="date"
                   value={startDate}
@@ -511,7 +523,7 @@ const Expenses = () => {
                     setStartDate(e.target.value);
                     setCurrentPage(1);
                   }}
-                  style={{ width: "140px" }}
+                  style={{ width: "125px", height: "38px" }}
                 />
                 <Form.Control
                   type="date"
@@ -520,13 +532,13 @@ const Expenses = () => {
                     setEndDate(e.target.value);
                     setCurrentPage(1);
                   }}
-                  style={{ width: "140px" }}
+                  style={{ width: "125px", height: "38px" }}
                 />
               </div>
             )}
 
             {/* Site search */}
-            <div style={{ minWidth: "180px" }}>
+            <div style={{ width: "150px" }}>
               <Select
                 value={
                   [
@@ -546,7 +558,22 @@ const Expenses = () => {
                   ...branches.map((b) => ({ value: b.id, label: b.name })),
                 ]}
                 isSearchable={true}
-                placeholder="Search Site"
+                placeholder="All Sites"
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    minHeight: "38px",
+                    height: "38px",
+                  }),
+                  valueContainer: (base) => ({
+                    ...base,
+                    padding: "0 8px",
+                  }),
+                  indicatorsContainer: (base) => ({
+                    ...base,
+                    height: "38px",
+                  }),
+                }}
               />
             </div>
 
@@ -557,7 +584,7 @@ const Expenses = () => {
                 setPaymentHeadFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ minWidth: "180px" }}
+              style={{ width: "150px", height: "38px" }}
             >
               <option value="">All Payment Heads</option>
               {categories.map((head) => (
@@ -567,21 +594,38 @@ const Expenses = () => {
               ))}
             </Form.Select>
 
-            {/* Vendor search */}
-            <Form.Control
-              type="text"
-              placeholder="Search Vendor..."
-              value={vendorSearch}
-              onChange={(e) => {
-                setVendorSearch(e.target.value);
-                setCurrentPage(1);
-              }}
-              style={{ maxWidth: "160px", height: "38px" }}
-            />
+            {/* Vendor search & Amount search (side by side in flex-nowrap) */}
+            <div className="d-flex align-items-center gap-2 flex-nowrap">
+              <Form.Control
+                type="text"
+                placeholder="Search Vendor..."
+                value={vendorSearch}
+                onChange={(e) => {
+                  setVendorSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ width: "135px", height: "38px" }}
+              />
+
+              <Form.Control
+                type="text"
+                placeholder="Search Amount..."
+                value={amountSearch}
+                onChange={(e) => {
+                  setAmountSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ width: "135px", height: "38px" }}
+              />
+            </div>
 
             {/* Export Dropdown */}
             <Dropdown>
-              <Dropdown.Toggle size="sm" variant="success">
+              <Dropdown.Toggle
+                variant="success"
+                className="d-flex align-items-center gap-1"
+                style={{ height: "38px" }}
+              >
                 <Download className="me-1" /> Export
               </Dropdown.Toggle>
               <Dropdown.Menu>
@@ -589,17 +633,20 @@ const Expenses = () => {
                 <Dropdown.Item onClick={handleDownloadPDF}>Download PDF</Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown>
-          </Col>
-        </Row>
+          </div>
+        </div>
+      </Card>
 
+      {/* SECTION 2 — TABLE */}
+      <Card className="p-4 shadow-sm">
         {/* Detailed Transactions Table */}
         <div className="table-responsive">
           <Table hover striped className="text-center">
             <thead className="table-light">
               <tr>
                 <th>Transaction Date</th>
-                <th>Site</th>
-                <th>Vendor</th>
+                <th className="text-start" style={{ textAlign: "left" }}>Site</th>
+                <th className="text-start" style={{ textAlign: "left" }}>Vendor</th>
                 <th>Total Amount (₹)</th>
                 <th>Bill Date</th>
                 <th>Supply Type</th>
@@ -629,7 +676,9 @@ const Expenses = () => {
                     <tr key={exp.id}>
                       <td>{formatDate(exp.created_at || exp.createdAt || exp.payment_date)}</td>
                       <td
+                        className="text-start"
                         style={{
+                          textAlign: "left",
                           maxWidth: "180px",
                           whiteSpace: "normal",
                           wordBreak: "break-word",
@@ -639,7 +688,9 @@ const Expenses = () => {
                         {getSiteName(exp)}
                       </td>
                       <td
+                        className="text-start"
                         style={{
+                          textAlign: "left",
                           maxWidth: "180px",
                           whiteSpace: "normal",
                           wordBreak: "break-word",
@@ -648,7 +699,9 @@ const Expenses = () => {
                       >
                         {getVendorName(exp)}
                       </td>
-                      <td className="fw-semibold">₹{formatINR(totalAmount)}</td>
+                      <td className="fw-semibold text-end" style={{ textAlign: "right" }}>
+                        {formatPurchaseAmount(totalAmount)}
+                      </td>
                       <td>{formatDate(exp.actual_bill_date || exp.payment_date)}</td>
                       <td>{exp.type_of_supply_or_service || "-"}</td>
                       <td>

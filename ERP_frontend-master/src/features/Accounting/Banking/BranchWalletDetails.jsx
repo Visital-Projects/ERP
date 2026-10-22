@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Table, Badge, Button, Modal, Form, Row, Col, InputGroup, OverlayTrigger, Tooltip } from "react-bootstrap";
 import branchWalletService from "../../../services/branchwalletService";
 import branchService from "../../../services/branchService";
@@ -29,12 +29,18 @@ import {
   deleteWalletTransactionAndOrigin,
   isPurchaseDeletionRefundTransaction,
   isDeletedPurchaseTransaction,
+  formatWalletTableAmount,
+  normalizeMonthValue,
+  getSavedWalletFilterState,
+  saveWalletFilterState,
+  resolveInitialBranchWalletFilter,
 } from "./walletAccountingHelpers";
 
 const BranchWalletDetails = () => {
   const { branchId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const user = JSON.parse(localStorage.getItem("user"));
 
@@ -49,11 +55,21 @@ const BranchWalletDetails = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [branches, setBranches] = useState([]);
 
-  const [periodType, setPeriodType] = useState("monthly");
-  const [filterValue, setFilterValue] = useState((new Date().getMonth() + 1).toString().padStart(2, "0"));
+  const initialDetailsFilter = resolveInitialBranchWalletFilter({
+    searchParams,
+    locationState: location.state,
+  });
+
+  const [periodType, setPeriodType] = useState(initialDetailsFilter.periodType);
+  const [filterValue, setFilterValue] = useState(() => {
+    if (initialDetailsFilter.periodType === "monthly") {
+      return initialDetailsFilter.monthValue || initialDetailsFilter.filterValue;
+    }
+    return initialDetailsFilter.filterValue || initialDetailsFilter.monthValue;
+  });
   const [statusFilter, setStatusFilter] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState(initialDetailsFilter.startDate || "");
+  const [endDate, setEndDate] = useState(initialDetailsFilter.endDate || "");
   const [entriesPerPage, setEntriesPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
   const [branchExpenses, setBranchExpenses] = useState([]);
@@ -61,7 +77,69 @@ const BranchWalletDetails = () => {
   const [categories, setCategories] = useState([]);
   const [isTransactionsLoading, setIsTransactionsLoading] = useState(true);
   const [isReferenceLoading, setIsReferenceLoading] = useState(true);
-  const [yearValue, setYearValue] = useState(new Date().getFullYear().toString());
+  const [yearValue, setYearValue] = useState(initialDetailsFilter.yearValue);
+
+  // Sync state to sessionStorage & searchParams
+  useEffect(() => {
+    saveWalletFilterState({
+      periodType,
+      monthValue: periodType === "monthly" ? filterValue : undefined,
+      yearValue,
+      filterValue,
+      startDate,
+      endDate,
+    });
+
+    const nextParams = new URLSearchParams();
+    if (periodType === "monthly") {
+      if (filterValue) nextParams.set("month", filterValue);
+      if (yearValue) nextParams.set("year", yearValue);
+      nextParams.set("periodType", "monthly");
+    } else if (periodType) {
+      nextParams.set("periodType", periodType);
+      if (filterValue) nextParams.set("filterValue", filterValue);
+      if (yearValue) nextParams.set("year", yearValue);
+      if (startDate) nextParams.set("startDate", startDate);
+      if (endDate) nextParams.set("endDate", endDate);
+    }
+
+    if (searchParams.toString() !== nextParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [periodType, filterValue, yearValue, startDate, endDate]);
+
+  // Sync state from searchParams on browser Back/Forward
+  useEffect(() => {
+    const urlMonthRaw = searchParams.get("month") || searchParams.get("monthValue");
+    const urlYearRaw = searchParams.get("year") || searchParams.get("yearValue");
+    const urlPeriodType = searchParams.get("periodType");
+    const urlFilterValue = searchParams.get("filterValue");
+    const urlStartDate = searchParams.get("startDate");
+    const urlEndDate = searchParams.get("endDate");
+
+    if (urlMonthRaw) {
+      const normMonth = normalizeMonthValue(urlMonthRaw);
+      if (normMonth && normMonth !== filterValue) {
+        setFilterValue(normMonth);
+      }
+    }
+    if (urlYearRaw && urlYearRaw !== yearValue) {
+      setYearValue(String(urlYearRaw));
+    }
+    if (urlPeriodType && urlPeriodType !== periodType) {
+      setPeriodType(urlPeriodType);
+    }
+    if (urlFilterValue !== null && urlFilterValue !== undefined && urlFilterValue !== filterValue) {
+      setFilterValue(urlFilterValue);
+    }
+    if (urlStartDate !== null && urlStartDate !== undefined && urlStartDate !== startDate) {
+      setStartDate(urlStartDate);
+    }
+    if (urlEndDate !== null && urlEndDate !== undefined && urlEndDate !== endDate) {
+      setEndDate(urlEndDate);
+    }
+  }, [searchParams]);
+
 
   const months = [
     { name: "January", value: "01" },
@@ -101,13 +179,8 @@ const BranchWalletDetails = () => {
     }
   }, [branchId, user?.type]);
 
-  useEffect(() => {
-    // Default filter to current month
-    const currentMonth = (new Date().getMonth() + 1).toString().padStart(2, "0");
-    setPeriodType("monthly");
-    setFilterValue(currentMonth);
-    setYearValue(new Date().getFullYear().toString());
-  }, []);
+  // Filter state is initialized directly in useState above from location.state (if present)
+  // or from current month/year defaults. No additional useEffect needed for initialization.
 
   const fetchBranchExpenses = async () => {
     setIsReferenceLoading(true);
@@ -1228,7 +1301,7 @@ const BranchWalletDetails = () => {
             <tr>
               <th>#</th>
               <th>Transaction Date</th>
-              <th>VENDOR NAME</th>
+              <th className="text-start" style={{ textAlign: "left" }}>VENDOR NAME</th>
               <th>Payment Head</th>
               <th>Credited (₹)</th>
               <th>Non GST Purchase (₹)</th>
@@ -1250,6 +1323,7 @@ const BranchWalletDetails = () => {
                 const debitInfo = getDebitInfo(tx);
                 const isCredit = tx.transaction_type === "credit";
                 const debitType = debitInfo?.type;
+                const isGst = !isCredit && (debitType === "GST" || debitType === "GST_DELETED");
 
                 return (
                   <tr key={tx.id}>
@@ -1274,30 +1348,27 @@ const BranchWalletDetails = () => {
                     </td>
 
                     {/* Credited Column */}
-                    <td className="fw-bold text-success">
-                      {isCredit ? `₹${Number(tx.amount).toLocaleString("en-IN")}` : "-"}
+                    <td className="fw-bold text-success text-end" style={{ textAlign: "right" }}>
+                      {formatWalletTableAmount(isCredit ? tx.amount : 0)}
                     </td>
 
                     {/* Non GST Purchase Column */}
-                    <td className="fw-bold text-warning">
-                      {!isCredit && debitType === "Non GST" ? `₹${Number(tx.amount).toLocaleString("en-IN")}` : "-"}
+                    <td className="fw-bold text-warning text-end" style={{ textAlign: "right" }}>
+                      {formatWalletTableAmount(!isCredit && !isGst ? tx.amount : 0)}
                     </td>
 
                     {/* GST Purchase Column */}
-                    <td className="fw-bold text-danger">
-                      {!isCredit && debitType === "GST" ? `₹${Number(tx.amount).toLocaleString("en-IN")}` : "-"}
+                    <td className="fw-bold text-danger text-end" style={{ textAlign: "right" }}>
+                      {formatWalletTableAmount(!isCredit && isGst ? tx.amount : 0)}
                     </td>
 
                     {/* Current Balance Column */}
-                    <td className="fw-bold text-primary">
-                      ₹{(
+                    <td className="fw-bold text-primary text-end" style={{ textAlign: "right" }}>
+                      {formatWalletTableAmount(
                         tx.historicalRunningBalance !== undefined
-                          ? Number(tx.historicalRunningBalance)
-                          : Number(tx.balance_after || 0)
-                      ).toLocaleString("en-IN", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                          ? tx.historicalRunningBalance
+                          : tx.balance_after
+                      )}
                     </td>
                     <td>
                       {formatDisplayDate(tx.created_at)}
@@ -1317,7 +1388,7 @@ const BranchWalletDetails = () => {
                                     branchId: tx.branch_id || branchId,
                                     amount: tx.amount,
                                     description: tx.description,
-                                    transactionDate: tx.transaction_date || tx.created_at
+                                    transactionDate: getEffectiveTransactionDateValue(tx) || tx.transaction_date || tx.created_at
                                   }
                                 })}
                               >
@@ -1334,7 +1405,7 @@ const BranchWalletDetails = () => {
                                     branchId: tx.branch_id || branchId,
                                     amount: tx.amount,
                                     description: tx.description,
-                                    transactionDate: tx.transaction_date || tx.created_at
+                                    transactionDate: getEffectiveTransactionDateValue(tx) || tx.transaction_date || tx.created_at
                                   }
                                 })}
                               >
@@ -1375,13 +1446,11 @@ const BranchWalletDetails = () => {
                 <td>-</td>
                 <td>-</td>
                 <td>-</td>
-                <td>-</td>
-                <td>-</td>
-                <td className="fw-bold text-primary">
-                  ₹{periodHistoricalBalance.toLocaleString("en-IN", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                <td className="fw-bold text-success text-end" style={{ textAlign: "right" }}>0</td>
+                <td className="fw-bold text-warning text-end" style={{ textAlign: "right" }}>0</td>
+                <td className="fw-bold text-danger text-end" style={{ textAlign: "right" }}>0</td>
+                <td className="fw-bold text-primary text-end" style={{ textAlign: "right" }}>
+                  {formatWalletTableAmount(periodHistoricalBalance)}
                 </td>
                 <td>-</td>
                 {(user?.type === "company" || user?.type === "Accountant") && (

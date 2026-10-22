@@ -174,11 +174,12 @@ async function getPaymentSummary(saleBillId) {
     return null;
   }
 
-  // Bill Total calculation from services
-  const billTotal = (bill.services || []).reduce(
+  // Bill Total calculation from services (rounded to nearest whole rupee)
+  const calculatedBillTotal = (bill.services || []).reduce(
     (sum, item) => sum + (parseFloat(item.total_amount) || 0),
     0
   );
+  const billTotal = Math.round(calculatedBillTotal);
 
   const advance = parseFloat(bill.advance_amount) || 0;
 

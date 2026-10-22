@@ -845,3 +845,289 @@ export const deleteWalletTransactionAndOrigin = async (
 
   return deleteTxRes;
 };
+
+export const getTodayDateString = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+/**
+ * Resolves a date value into YYYY-MM-DD format for HTML date inputs without timezone shifting.
+ * Priority:
+ *   1. Explicit dateValue (originating transaction date or existing purchase bill date)
+ *   2. fallbackDate (if provided)
+ *   3. Today's date (YYYY-MM-DD)
+ */
+export const resolveDateInputValue = (dateValue, fallbackDate = null) => {
+  if (dateValue) {
+    if (typeof dateValue === "string") {
+      const trimmed = dateValue.trim();
+      // Matches YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss...
+      const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (ymdMatch) {
+        return `${ymdMatch[1]}-${ymdMatch[2]}-${ymdMatch[3]}`;
+      }
+      // Matches DD/MM/YYYY or DD-MM-YYYY
+      const dmyMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+      if (dmyMatch) {
+        const d = dmyMatch[1].padStart(2, "0");
+        const m = dmyMatch[2].padStart(2, "0");
+        const y = dmyMatch[3];
+        return `${y}-${m}-${d}`;
+      }
+    }
+    const parsed = moment(dateValue);
+    if (parsed.isValid()) {
+      return parsed.format("YYYY-MM-DD");
+    }
+  }
+
+  if (fallbackDate) {
+    return resolveDateInputValue(fallbackDate);
+  }
+
+  return getTodayDateString();
+};
+
+/**
+ * Formats a wallet amount for table display:
+ * - Whole rupee (rounded)
+ * - Indian number grouping (en-IN)
+ * - No ₹ symbol
+ * - No decimal/paisa
+ * - 0 displays as "0"
+ */
+export const formatWalletTableAmount = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num === 0) return "0";
+  return Math.round(num).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+};
+
+export const BRANCH_WALLET_FILTER_STORAGE_KEY = "branch_wallet_filters";
+
+export const normalizeMonthValue = (rawMonth) => {
+  if (rawMonth === null || rawMonth === undefined) return "";
+  const str = String(rawMonth).trim().toLowerCase();
+  if (!str) return "";
+
+  const monthNames = {
+    january: "01",
+    jan: "01",
+    february: "02",
+    feb: "02",
+    march: "03",
+    mar: "03",
+    april: "04",
+    apr: "04",
+    may: "05",
+    june: "06",
+    jun: "06",
+    july: "07",
+    jul: "07",
+    august: "08",
+    aug: "08",
+    september: "09",
+    sep: "09",
+    sept: "09",
+    october: "10",
+    oct: "10",
+    november: "11",
+    nov: "11",
+    december: "12",
+    dec: "12",
+  };
+
+  if (monthNames[str]) {
+    return monthNames[str];
+  }
+
+  const num = parseInt(str, 10);
+  if (!Number.isNaN(num) && num >= 1 && num <= 12) {
+    return String(num).padStart(2, "0");
+  }
+
+  return str;
+};
+
+export const getSavedWalletFilterState = () => {
+  try {
+    if (typeof window === "undefined" || !window.sessionStorage) return null;
+    const raw = window.sessionStorage.getItem(BRANCH_WALLET_FILTER_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error("Failed to read branch wallet filter state from sessionStorage:", e);
+    return null;
+  }
+};
+
+export const saveWalletFilterState = (filterState) => {
+  try {
+    if (typeof window === "undefined" || !window.sessionStorage) return;
+    if (!filterState) {
+      window.sessionStorage.removeItem(BRANCH_WALLET_FILTER_STORAGE_KEY);
+      return;
+    }
+    const current = getSavedWalletFilterState() || {};
+    const updated = {
+      ...current,
+      ...filterState,
+      timestamp: Date.now(),
+    };
+    window.sessionStorage.setItem(
+      BRANCH_WALLET_FILTER_STORAGE_KEY,
+      JSON.stringify(updated)
+    );
+  } catch (e) {
+    console.error("Failed to save branch wallet filter state to sessionStorage:", e);
+  }
+};
+
+/**
+ * Resolves initial Branch Wallet filter state using the strict priority:
+ * 1. Existing URL / navigation state (searchParams or location.state)
+ * 2. Previously selected filter state (sessionStorage)
+ * 3. Existing application default
+ * 4. Current month/year only as the final fallback
+ */
+export const resolveInitialBranchWalletFilter = ({ searchParams, locationState }) => {
+  // 1. Existing URL / navigation state
+  const urlMonthRaw =
+    searchParams?.get?.("month") ||
+    searchParams?.get?.("monthValue") ||
+    null;
+  const urlYearRaw =
+    searchParams?.get?.("year") ||
+    searchParams?.get?.("yearValue") ||
+    null;
+  const urlPeriodType = searchParams?.get?.("periodType") || null;
+  const urlFilterValue = searchParams?.get?.("filterValue") || null;
+  const urlStartDate = searchParams?.get?.("startDate") || null;
+  const urlEndDate = searchParams?.get?.("endDate") || null;
+
+  const navMonthRaw = locationState?.monthValue || locationState?.month || null;
+  const navYearRaw = locationState?.yearValue || locationState?.year || null;
+  const navPeriodType = locationState?.periodType || null;
+  const navFilterValue = locationState?.filterValue || null;
+  const navStartDate = locationState?.startDate || null;
+  const navEndDate = locationState?.endDate || null;
+
+  const rawMonth = urlMonthRaw || navMonthRaw;
+  const rawYear = urlYearRaw || navYearRaw;
+  const rawPeriodType = urlPeriodType || navPeriodType;
+  const rawFilterValue = urlFilterValue || navFilterValue;
+  const rawStartDate = urlStartDate || navStartDate;
+  const rawEndDate = urlEndDate || navEndDate;
+
+  const hasExplicitNavOrUrl = Boolean(
+    rawMonth ||
+    rawYear ||
+    rawPeriodType ||
+    rawFilterValue ||
+    rawStartDate ||
+    rawEndDate
+  );
+
+  if (hasExplicitNavOrUrl) {
+    const normMonth = normalizeMonthValue(rawMonth);
+    const resolvedPeriodType = rawPeriodType || (normMonth ? "monthly" : "monthly");
+    const currentYearStr = new Date().getFullYear().toString();
+    const resolvedYear = rawYear ? String(rawYear) : (normMonth ? currentYearStr : "");
+
+    return {
+      periodType: resolvedPeriodType,
+      monthValue: normMonth || (resolvedPeriodType === "monthly" ? (new Date().getMonth() + 1).toString().padStart(2, "0") : ""),
+      yearValue: resolvedYear || (resolvedPeriodType === "monthly" ? currentYearStr : ""),
+      filterValue: rawFilterValue || (resolvedPeriodType === "monthly" ? normMonth : ""),
+      startDate: rawStartDate || "",
+      endDate: rawEndDate || "",
+    };
+  }
+
+  // 2. Previously selected filter state
+  const saved = getSavedWalletFilterState();
+  if (saved && (saved.monthValue || saved.yearValue || saved.periodType || saved.filterValue)) {
+    const normSavedMonth = normalizeMonthValue(saved.monthValue);
+    const savedPeriod = saved.periodType || "monthly";
+    const currentYearStr = new Date().getFullYear().toString();
+
+    return {
+      periodType: savedPeriod,
+      monthValue: normSavedMonth || (savedPeriod === "monthly" ? (new Date().getMonth() + 1).toString().padStart(2, "0") : ""),
+      yearValue: saved.yearValue ? String(saved.yearValue) : (savedPeriod === "monthly" ? currentYearStr : ""),
+      filterValue: saved.filterValue || (savedPeriod === "monthly" ? normSavedMonth : ""),
+      startDate: saved.startDate || "",
+      endDate: saved.endDate || "",
+    };
+  }
+
+  // 3 & 4. Existing application default / Current month/year final fallback
+  const now = new Date();
+  const defaultMonth = (now.getMonth() + 1).toString().padStart(2, "0");
+  const defaultYear = now.getFullYear().toString();
+
+  return {
+    periodType: "monthly",
+    monthValue: defaultMonth,
+    yearValue: defaultYear,
+    filterValue: defaultMonth,
+    startDate: "",
+    endDate: "",
+  };
+};
+
+/**
+ * Checks if a numeric or string amount value matches a user amount search query.
+ * Normalizes both values by stripping ₹ symbols, whitespace, commas, and trailing .00.
+ * Supports partial matching (e.g., '496' matching '4,96,946').
+ */
+export const matchesAmountSearch = (amountValue, searchQuery) => {
+  if (searchQuery === null || searchQuery === undefined) return true;
+  const rawQuery = String(searchQuery).trim();
+  if (!rawQuery) return true;
+
+  // Clean the user's search query:
+  // Remove ₹, whitespace, commas, trailing .00
+  const cleanSearch = rawQuery
+    .replace(/[₹\s,]/g, "")
+    .replace(/\.0+$/, "")
+    .toLowerCase();
+
+  if (!cleanSearch) return true;
+
+  const num = Number(amountValue);
+  const validNum = Number.isFinite(num);
+
+  // Targets to test:
+  // 1. Math.round(num) as clean string, e.g. "496946"
+  const roundedStr = validNum ? String(Math.round(num)) : "";
+
+  // 2. Exact numeric string (if decimal like 1234.5), with commas removed
+  const rawNumStr = validNum
+    ? String(num).replace(/,/g, "")
+    : String(amountValue || "").replace(/[₹\s,]/g, "");
+
+  // 3. Indian formatted string without commas: e.g. "496946"
+  const formattedStrNoCommas = validNum
+    ? Math.round(num).toLocaleString("en-IN", { maximumFractionDigits: 0 }).replace(/,/g, "")
+    : "";
+
+  // 4. Indian formatted string with commas: e.g. "4,96,946"
+  const formattedWithCommas = validNum
+    ? Math.round(num).toLocaleString("en-IN", { maximumFractionDigits: 0 })
+    : "";
+
+  const rawQueryLower = rawQuery.replace(/[₹\s]/g, "").toLowerCase();
+
+  return (
+    (Boolean(roundedStr) && roundedStr.includes(cleanSearch)) ||
+    (Boolean(rawNumStr) && rawNumStr.includes(cleanSearch)) ||
+    (Boolean(formattedStrNoCommas) && formattedStrNoCommas.includes(cleanSearch)) ||
+    (Boolean(formattedWithCommas) && formattedWithCommas.toLowerCase().includes(rawQueryLower))
+  );
+};
+
+

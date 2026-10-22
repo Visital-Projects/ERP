@@ -60,8 +60,10 @@ const getVendorById = async (id) => {
 // ✅ Create vendor
 const createVendor = async (vendorData) => {
   const payload = {
-    working_zone_id: vendorData.working_zone_id,
     name: vendorData.name,
+    address: vendorData.address,
+    phone: vendorData.phone,
+    working_zone_id: vendorData.working_zone_id,
   };
   const res = await apiClient.post("/vendor-names", payload); // matches router.post('/')
   return res.data.data;
@@ -71,6 +73,8 @@ const createVendor = async (vendorData) => {
 const updateVendor = async (vendorId, vendorData) => {
   const payload = {
     name: vendorData.name,
+    address: vendorData.address,
+    phone: vendorData.phone,
     working_zone_id: vendorData.working_zone_id, // optional — controller checks if sent
   };
   const res = await apiClient.put(`/vendor-names/${vendorId}`, payload); // matches router.put('/:id')

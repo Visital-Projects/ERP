@@ -31,6 +31,7 @@ const SaleBills = () => {
     startDate: "",
     endDate: ""
   });
+  const [invoiceSearch, setInvoiceSearch] = useState("");
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewSaleBill, setPreviewSaleBill] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -59,6 +60,10 @@ const SaleBills = () => {
     pending_amount: 0,
   });
   const [listPaymentSummaries, setListPaymentSummaries] = useState({});
+
+  // Display-only formatter: whole number, Indian grouping, no ₹, no decimals
+  const formatAmount = (value) =>
+    (Math.round(Number(value) || 0)).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 
   const normalizeSaleBill = (saleBill) => {
     const services = (saleBill.services || []).map((service) => {
@@ -124,9 +129,11 @@ const SaleBills = () => {
       return toWords(Math.floor(n / 10000000)) + " crore" + (n % 10000000 ? " " + toWords(n % 10000000) : "");
     };
 
-    const rupees = Math.floor(num);
-    const paise = Math.round((num - rupees) * 100);
-    let words = toWords(rupees) + " rupees";
+    const isNegative = num < 0;
+    const absNum = Math.abs(num);
+    const rupees = Math.floor(absNum);
+    const paise = Math.round((absNum - rupees) * 100);
+    let words = (isNegative ? "minus " : "") + toWords(rupees) + " rupees";
     if (paise) words += " and " + toWords(paise) + " paise";
     return words + " only";
   };
@@ -515,16 +522,18 @@ const SaleBills = () => {
       
       const sbData = normalizeSaleBill(sb);
 
-      const billTotalAmount = sbData.services?.reduce((sum, s) => {
+      const billTotalAmount = Math.round(sbData.services?.reduce((sum, s) => {
         const total = Number(s.total_amount != null ? s.total_amount : 0);
         return sum + (total || (Number(s.rate || 0) * Number(s.quantity || 0)));
-      }, 0) || 0;
+      }, 0) || 0);
 
       const summary = listPaymentSummaries[sb.id];
       const received = Number(summary ? summary.total_received : (sb.received_amount || sb.total_received || 0)); 
       const tds = Number(summary ? summary.total_tds : (sb.total_tds || sb.tds || 0));
       const deduction = Number(summary ? summary.total_deductions : (sb.total_deductions || sb.deductions || 0));
-      const diff = Number(summary ? (summary.bill_total - (summary.total_received || 0) - (summary.total_tds || 0) - (summary.total_deductions || 0) - (summary.advance_amount || 0)) : (billTotalAmount - received - tds - deduction));
+      const diff = summary?.pending_amount != null
+        ? Math.round(Number(summary.pending_amount))
+        : Math.round(billTotalAmount - received - tds - deduction);
 
       (sbData.services || []).forEach((s, index) => {
         const quantity = Number(s.quantity || 0);
@@ -660,67 +669,163 @@ const SaleBills = () => {
       message: "This action cannot be undone. Continue?",
       iconColor: "#ff0000",
       onConfirm: async () => {
-        await salebillService.deleteSaleBill(id);
-        toast.success("Sale bill deleted successfully");
-        fetchSaleBills();
+        try {
+          await salebillService.deleteSaleBill(id);
+          toast.success("Sale bill deleted successfully");
+          fetchSaleBills();
+        } catch (error) {
+          console.error("Failed to delete sale bill:", error);
+          const msg = error?.message || error?.response?.data?.message || "Failed to delete sale bill";
+          toast.error(msg);
+        }
       },
     });
   };
 
-  const filteredSaleBills = (saleBills || []).filter((item) => {
-    const matchesStatus = !filters.status || item.status?.toLowerCase() === filters.status?.toLowerCase();
-    const matchesSite = !filters.site || String(item.assigned_to) === String(filters.site);
-    
-    let matchesDate = true;
-    if (item.invoice_date) {
-      const itemDate = moment(item.invoice_date);
-      const { period, invoice_date, startDate, endDate } = filters;
+  // Helper to extract numeric serial and financial year components from invoice_number
+  const parseInvoiceNumber = (inv) => {
+    if (!inv || typeof inv !== "string") {
+      return { raw: "", prefix: "", fy: "", serial: 0, hasSerial: false, isStandard: false };
+    }
+    const trimmed = inv.trim();
 
-      switch (period) {
-        case "daily":
-          matchesDate = !invoice_date || itemDate.format("YYYY-MM-DD") === invoice_date;
-          break;
-        case "weekly":
-          if (invoice_date) {
-            const start = moment(invoice_date).startOf("week");
-            const end = moment(invoice_date).endOf("week");
-            matchesDate = itemDate.isBetween(start, end, "day", "[]");
-          }
-          break;
-        case "monthly":
-          matchesDate = !invoice_date || itemDate.format("YYYY-MM") === invoice_date;
-          break;
-        case "yearly":
-          matchesDate = !invoice_date || itemDate.format("YYYY") === invoice_date;
-          break;
-        case "custom":
-          if (startDate || endDate) {
-            const start = startDate ? moment(startDate).startOf("day") : null;
-            const end = endDate ? moment(endDate).endOf("day") : null;
-            if (start && end) matchesDate = itemDate.isBetween(start, end, "day", "[]");
-            else if (start) matchesDate = itemDate.isSameOrAfter(start, "day");
-            else if (end) matchesDate = itemDate.isSameOrBefore(end, "day");
-          } else {
-            // If no custom dates, fallback to single invoice_date for backward compatibility if it exists
-            matchesDate = !invoice_date || (item.invoice_date?.slice(0, 10) === invoice_date);
-          }
-          break;
-        case "all":
-          matchesDate = true;
-          break;
-        default:
-          matchesDate = true;
-      }
-    } else {
-      // If item has no date, only show if no date filter is active
-      matchesDate = !filters.invoice_date && !filters.startDate && !filters.endDate;
+    // Standard format: PREFIX/FY/SERIAL (e.g. VEW/26-27/190)
+    const standardMatch = trimmed.match(/^([A-Za-z0-9_-]+)\/(\d{2}-\d{2})\/(\d+)$/);
+    if (standardMatch) {
+      return {
+        raw: trimmed,
+        prefix: standardMatch[1],
+        fy: standardMatch[2],
+        serial: parseInt(standardMatch[3], 10),
+        hasSerial: true,
+        isStandard: true,
+      };
     }
 
-    return matchesStatus && matchesDate && matchesSite;
-  });
+    // General trailing numeric serial match (e.g. INV-0022, BILL-123)
+    const trailingMatch = trimmed.match(/^(.*?)(\d+)$/);
+    if (trailingMatch) {
+      return {
+        raw: trimmed,
+        prefix: trailingMatch[1],
+        fy: "",
+        serial: parseInt(trailingMatch[2], 10),
+        hasSerial: true,
+        isStandard: false,
+      };
+    }
+
+    return {
+      raw: trimmed,
+      prefix: trimmed,
+      fy: "",
+      serial: 0,
+      hasSerial: false,
+      isStandard: false,
+    };
+  };
+
+  const compareInvoices = (aBill, bBill) => {
+    const a = parseInvoiceNumber(aBill.invoice_number);
+    const b = parseInvoiceNumber(bBill.invoice_number);
+
+    // 1. Both standard format (e.g., VEW/26-27/190)
+    if (a.isStandard && b.isStandard) {
+      if (a.prefix !== b.prefix) {
+        return a.prefix.localeCompare(b.prefix);
+      }
+      // Compare FY descending (newer FY first: "26-27" before "25-26")
+      if (a.fy !== b.fy) {
+        return b.fy.localeCompare(a.fy);
+      }
+      // Within same FY, sort by numeric serial descending (e.g. 190 > 187 > 186 > 185 > 181)
+      if (a.serial !== b.serial) {
+        return b.serial - a.serial;
+      }
+    } else if (a.isStandard !== b.isStandard) {
+      // Standard invoices appear before non-standard
+      return a.isStandard ? -1 : 1;
+    } else if (a.hasSerial && b.hasSerial) {
+      // Both non-standard but have trailing serials
+      if (a.prefix !== b.prefix) {
+        return a.prefix.localeCompare(b.prefix);
+      }
+      if (a.serial !== b.serial) {
+        return b.serial - a.serial;
+      }
+    } else if (a.hasSerial !== b.hasSerial) {
+      return a.hasSerial ? -1 : 1;
+    }
+
+    // Fallback comparison
+    if (a.raw && b.raw && a.raw !== b.raw) {
+      return b.raw.localeCompare(a.raw);
+    }
+    return (bBill.id || 0) - (aBill.id || 0);
+  };
+
+  const filteredSaleBills = useMemo(() => {
+    const filtered = (saleBills || []).filter((item) => {
+      const matchesStatus = !filters.status || item.status?.toLowerCase() === filters.status?.toLowerCase();
+      const matchesSite = !filters.site || String(item.assigned_to) === String(filters.site);
+      
+      let matchesDate = true;
+      if (item.invoice_date) {
+        const itemDate = moment(item.invoice_date);
+        const { period, invoice_date, startDate, endDate } = filters;
+
+        switch (period) {
+          case "daily":
+            matchesDate = !invoice_date || itemDate.format("YYYY-MM-DD") === invoice_date;
+            break;
+          case "weekly":
+            if (invoice_date) {
+              const start = moment(invoice_date).startOf("week");
+              const end = moment(invoice_date).endOf("week");
+              matchesDate = itemDate.isBetween(start, end, "day", "[]");
+            }
+            break;
+          case "monthly":
+            matchesDate = !invoice_date || itemDate.format("YYYY-MM") === invoice_date;
+            break;
+          case "yearly":
+            matchesDate = !invoice_date || itemDate.format("YYYY") === invoice_date;
+            break;
+          case "custom":
+            if (startDate || endDate) {
+              const start = startDate ? moment(startDate).startOf("day") : null;
+              const end = endDate ? moment(endDate).endOf("day") : null;
+              if (start && end) matchesDate = itemDate.isBetween(start, end, "day", "[]");
+              else if (start) matchesDate = itemDate.isSameOrAfter(start, "day");
+              else if (end) matchesDate = itemDate.isSameOrBefore(end, "day");
+            } else {
+              // If no custom dates, fallback to single invoice_date for backward compatibility if it exists
+              matchesDate = !invoice_date || (item.invoice_date?.slice(0, 10) === invoice_date);
+            }
+            break;
+          case "all":
+            matchesDate = true;
+            break;
+          default:
+            matchesDate = true;
+        }
+      } else {
+        // If item has no date, only show if no date filter is active
+        matchesDate = !filters.invoice_date && !filters.startDate && !filters.endDate;
+      }
+
+      const matchesInvoice = !invoiceSearch.trim() ||
+        (item.invoice_number || "").toLowerCase().includes(invoiceSearch.trim().toLowerCase());
+
+      return matchesStatus && matchesDate && matchesSite && matchesInvoice;
+    });
+
+    return filtered.sort(compareInvoices);
+  }, [saleBills, filters, invoiceSearch]);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
+    setCurrentPage(1);
     if (name === "period") {
       setFilters((prev) => ({
         ...prev,
@@ -733,8 +838,7 @@ const SaleBills = () => {
       }));
     } else {
       setFilters((prev) => ({ ...prev, [name]: value }));
-    }
-    setCurrentPage(1); 
+    } 
   };
 
 
@@ -988,27 +1092,28 @@ const SaleBills = () => {
     // ========== TOTALS & TAX SECTION ==========
     const subTotal = services.reduce((sum, s) => sum + (Number(s.quantity || 0) * Number(s.rate || 0)), 0);
     const totalTax = services.reduce((sum, s) => sum + Number(s.tax_amount || 0), 0);
-    const grandTotal = subTotal + totalTax;
-    const roundedUp = 0.40; // Example rounding
+    const calculatedGrandTotal = subTotal + totalTax;
+    const roundedGrandTotal = Math.round(calculatedGrandTotal);
+    const roundOff = roundedGrandTotal - calculatedGrandTotal;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.text("IGST", right - 70, currentY + 4, { align: "left" });
-    doc.text(`₹ ${totalTax.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`, right - 8, currentY + 4, { align: "right" });
+    doc.text(`₹ ${totalTax.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, right - 8, currentY + 4, { align: "right" });
 
     doc.text("Rounded Up/off", right - 70, currentY + 8, { align: "left" });
-    doc.text(`₹ ${roundedUp.toFixed(2)}`, right - 8, currentY + 8, { align: "right" });
+    doc.text(`₹ ${roundOff >= 0 ? "+" : ""}${roundOff.toFixed(2)}`, right - 8, currentY + 8, { align: "right" });
 
     doc.setFont("helvetica", "bold");
     doc.text("Total", right - 70, currentY + 12, { align: "left" });
-    doc.text(`₹ ${(grandTotal + roundedUp).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`, right - 8, currentY + 12, { align: "right" });
+    doc.text(`₹ ${roundedGrandTotal.toLocaleString("en-IN")}`, right - 8, currentY + 12, { align: "right" });
 
     currentY += 20;
 
     // ========== AMOUNT IN WORDS ==========
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.text(`Amount Chargeable (in words): ${numberToWords(grandTotal)}`, left, currentY);
+    doc.text(`Amount Chargeable (in words): ${numberToWords(roundedGrandTotal)}`, left, currentY);
     currentY += 6;
     doc.text(`Tax Amount (in words): ${numberToWords(totalTax)}`, left, currentY);
 
@@ -1051,71 +1156,101 @@ const SaleBills = () => {
 
       <Card>
         <Card.Body>
-          <div className="d-flex flex-wrap align-items-end gap-3 mb-4 pb-3 border-bottom">
-            <div style={{ minWidth: "140px" }}>
-              <Form.Group>
-                <Form.Label className="fw-semibold mb-1">Status</Form.Label>
-                <Form.Select name="status" value={filters.status} onChange={handleFilterChange}>
-                  <option value="">All Status</option>
-                  <option value="pending">pending</option>
-                  <option value="paid">paid</option>
-                </Form.Select>
-              </Form.Group>
-            </div>
-            <div style={{ minWidth: "140px" }}>
-              <Form.Group>
-                <Form.Label className="fw-semibold mb-1">Select Period</Form.Label>
-                <Form.Select name="period" value={filters.period} onChange={handleFilterChange}>
-                  <option value="all">All Period</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="yearly">Yearly</option>
-                  <option value="custom">Custom</option>
-                </Form.Select>
-              </Form.Group>
-            </div>
-            
-            {filters.period === "custom" ? (
-              <>
-                <div style={{ minWidth: "140px" }}>
-                  <Form.Group>
-                    <Form.Label className="fw-semibold mb-1">Start Date</Form.Label>
-                    <Form.Control type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} />
-                  </Form.Group>
-                </div>
-                <div style={{ minWidth: "140px" }}>
-                  <Form.Group>
-                    <Form.Label className="fw-semibold mb-1">End Date</Form.Label>
-                    <Form.Control type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} />
-                  </Form.Group>
-                </div>
-              </>
-            ) : filters.period !== "all" ? (
-              <div style={{ minWidth: "140px" }}>
-                <Form.Group>
-                  <Form.Label className="fw-semibold mb-1">
-                    {filters.period === "monthly" ? "Select Month" : filters.period === "yearly" ? "Select Year" : filters.period === "weekly" ? "Select Week" : "Select Date"}
-                  </Form.Label>
-                  {filters.period === "yearly" ? (
-                    <Form.Select name="invoice_date" value={filters.invoice_date} onChange={handleFilterChange}>
-                      {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                    </Form.Select>
-                  ) : (
-                    <Form.Control 
-                      type={filters.period === "monthly" ? "month" : "date"} 
-                      name="invoice_date" 
-                      value={filters.invoice_date} 
-                      onChange={handleFilterChange} 
-                    />
-                  )}
-                </Form.Group>
-              </div>
-            ) : null}
+          {/* ══ FILTER TOOLBAR — two-row layout: labels above, inputs on same baseline ══ */}
+          <div className="mb-4 pb-3 border-bottom">
 
-            <div className="flex-grow-1" style={{ minWidth: "200px", maxWidth: "300px" }}>
-              <Form.Group>
-                <Form.Label className="fw-semibold mb-1">Select Site</Form.Label>
+            {/* ROW 1 — Labels */}
+            <div className="d-flex flex-wrap gap-3" style={{ marginBottom: "4px" }}>
+              <div className="fw-semibold" style={{ width: "125px", fontSize: "14px" }}>Status</div>
+              <div className="fw-semibold" style={{ width: "130px", fontSize: "14px" }}>Select Period</div>
+              {filters.period === "custom" ? (
+                <>
+                  <div className="fw-semibold" style={{ width: "140px", fontSize: "14px" }}>Start Date</div>
+                  <div className="fw-semibold" style={{ width: "140px", fontSize: "14px" }}>End Date</div>
+                </>
+              ) : filters.period !== "all" ? (
+                <div className="fw-semibold" style={{ width: "140px", fontSize: "14px" }}>
+                  {filters.period === "monthly" ? "Select Month"
+                    : filters.period === "yearly" ? "Select Year"
+                    : filters.period === "weekly" ? "Select Week"
+                    : "Select Date"}
+                </div>
+              ) : null}
+              <div className="fw-semibold" style={{ width: "215px", fontSize: "14px" }}>Select Site</div>
+              <div className="fw-semibold" style={{ width: "215px", fontSize: "14px" }}>Search Invoice</div>
+            </div>
+
+            {/* ROW 2 — Inputs + Buttons (all on the exact same baseline via align-items-center) */}
+            <div className="d-flex flex-wrap align-items-center gap-3">
+
+              {/* Status */}
+              <Form.Select
+                name="status"
+                value={filters.status}
+                onChange={handleFilterChange}
+                style={{ width: "125px", height: "38px", flexShrink: 0 }}
+              >
+                <option value="">All Status</option>
+                <option value="pending">pending</option>
+                <option value="paid">paid</option>
+              </Form.Select>
+
+              {/* Select Period */}
+              <Form.Select
+                name="period"
+                value={filters.period}
+                onChange={handleFilterChange}
+                style={{ width: "130px", height: "38px", flexShrink: 0 }}
+              >
+                <option value="all">All Period</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+                <option value="custom">Custom</option>
+              </Form.Select>
+
+              {/* Conditional date picker */}
+              {filters.period === "custom" ? (
+                <>
+                  <Form.Control
+                    type="date"
+                    name="startDate"
+                    value={filters.startDate}
+                    onChange={handleFilterChange}
+                    style={{ width: "140px", height: "38px", flexShrink: 0 }}
+                  />
+                  <Form.Control
+                    type="date"
+                    name="endDate"
+                    value={filters.endDate}
+                    onChange={handleFilterChange}
+                    style={{ width: "140px", height: "38px", flexShrink: 0 }}
+                  />
+                </>
+              ) : filters.period !== "all" ? (
+                filters.period === "yearly" ? (
+                  <Form.Select
+                    name="invoice_date"
+                    value={filters.invoice_date}
+                    onChange={handleFilterChange}
+                    style={{ width: "140px", height: "38px", flexShrink: 0 }}
+                  >
+                    {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                  </Form.Select>
+                ) : (
+                  <Form.Control
+                    type={filters.period === "monthly" ? "month" : "date"}
+                    name="invoice_date"
+                    value={filters.invoice_date}
+                    onChange={handleFilterChange}
+                    style={{ width: "140px", height: "38px", flexShrink: 0 }}
+                  />
+                )
+              ) : null}
+
+              {/* Select Site — wrapped in fixed-width div so react-select fills 100% */}
+              <div style={{ width: "215px", flexShrink: 0 }}>
                 <Select
                   options={[
                     { value: "", label: "All Sites" },
@@ -1133,26 +1268,57 @@ const SaleBills = () => {
                     setFilters((prev) => ({ ...prev, site: selected ? selected.value : "" }))
                   }
                   isSearchable={true}
-                  placeholder="Search Site..."
+                  placeholder="All Sites"
                   styles={{
                     control: (base) => ({
                       ...base,
                       borderColor: "#dee2e6",
+                      height: "38px",
                       minHeight: "38px",
                     }),
+                    valueContainer: (base) => ({ ...base, padding: "0 8px" }),
+                    input: (base) => ({ ...base, margin: 0, padding: 0 }),
+                    indicatorsContainer: (base) => ({ ...base, height: "38px" }),
                   }}
                 />
-              </Form.Group>
-            </div>
-            <div className="ms-auto d-flex gap-2">
-              <Button variant="success" onClick={handleDownloadExcel} title="Download Excel" className="px-3">
-                <Download size={16} className="me-1" /> Excel
-              </Button>
-              <Button variant="primary" onClick={openCreate} className="px-3">
-                <Plus size={16} /> Create Sale Invoice
-              </Button>
+              </div>
+
+              {/* Search Invoice */}
+              <Form.Control
+                type="text"
+                placeholder="Search invoice..."
+                value={invoiceSearch}
+                onChange={(e) => {
+                  setInvoiceSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ width: "215px", height: "38px", flexShrink: 0 }}
+              />
+
+              {/* Action buttons — pushed to the right, centered with inputs */}
+              <div className="ms-auto d-flex align-items-center gap-2" style={{ flexShrink: 0 }}>
+                <Button
+                  variant="success"
+                  onClick={handleDownloadExcel}
+                  title="Download Excel"
+                  style={{ height: "38px" }}
+                  className="px-3 d-flex align-items-center"
+                >
+                  <Download size={15} className="me-1" /> Excel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={openCreate}
+                  style={{ height: "38px" }}
+                  className="px-3 d-flex align-items-center"
+                >
+                  <Plus size={15} className="me-1" /> Create Sale Invoice
+                </Button>
+              </div>
+
             </div>
           </div>
+
 
           <div className="table-responsive">
             <Table striped hover bordered>
@@ -1183,7 +1349,7 @@ const SaleBills = () => {
                     <td></td>
                     <td></td>
                     <td></td>
-                    <td className="text-danger">₹{(Number(openingBalance) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
+                    <td className="text-danger text-end" style={{ textAlign: "right" }}>{formatAmount(openingBalance)}</td>
                     <td></td>
                   </tr>
                 )}
@@ -1191,17 +1357,21 @@ const SaleBills = () => {
                   .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
                   .map((sb, index) => {
                     const actualIndex = (currentPage - 1) * itemsPerPage + index + 1;
-                    const totalAmount = sb.services?.reduce((sum, s) => {
+                    const calculatedTotal = sb.services?.reduce((sum, s) => {
                       const total = Number(s.total_amount != null ? s.total_amount : 0);
                       return sum + (total || (Number(s.rate || 0) * Number(s.quantity || 0)));
                     }, 0) || 0;
+                    const roundedGrandTotal = Math.round(calculatedTotal);
 
                     // Use real-time summary if fetched, otherwise fallback to bill data
                     const summary = listPaymentSummaries[sb.id];
+                    const billTotal = summary?.bill_total != null ? Math.round(Number(summary.bill_total)) : roundedGrandTotal;
                     const received = Number(summary ? summary.total_received : (sb.received_amount || sb.total_received || 0)); 
                     const tds = Number(summary ? summary.total_tds : (sb.total_tds || sb.tds || 0));
                     const deduction = Number(summary ? summary.total_deductions : (sb.total_deductions || sb.deductions || 0));
-                    const difference = Number(summary ? (summary.bill_total - (summary.total_received || 0) - (summary.total_tds || 0) - (summary.total_deductions || 0) - (summary.advance_amount || 0)) : (totalAmount - received - tds - deduction));
+                    const difference = summary?.pending_amount != null
+                      ? Math.round(Number(summary.pending_amount))
+                      : Math.round(billTotal - received - tds - deduction);
 
                     return (
                       <tr key={sb.id || actualIndex}>
@@ -1214,11 +1384,11 @@ const SaleBills = () => {
                           </span>
                         </td>
                         <td>{branches.find((b) => String(b.id) === String(sb.assigned_to))?.name || sb.branch_name || "-"}</td>
-                        <td className="fw-bold">₹{(Number(totalAmount) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
-                        <td className="text-success fw-bold">₹{(Number(received) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
-                        <td className="text-muted fw-bold">₹{(Number(tds) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
-                        <td className="text-muted fw-bold">₹{(Number(deduction) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
-                        <td className="text-danger fw-bold">₹{(Number(difference) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
+                        <td className="fw-bold text-end" style={{ textAlign: "right" }}>{formatAmount(billTotal)}</td>
+                        <td className="text-success fw-bold text-end" style={{ textAlign: "right" }}>{formatAmount(received)}</td>
+                        <td className="text-muted fw-bold text-end" style={{ textAlign: "right" }}>{formatAmount(tds)}</td>
+                        <td className="text-muted fw-bold text-end" style={{ textAlign: "right" }}>{formatAmount(deduction)}</td>
+                        <td className="text-danger fw-bold text-end" style={{ textAlign: "right" }}>{formatAmount(difference)}</td>
                         <td>
                           <div className="d-flex gap-1">
                             <Button variant="outline-primary" size="sm" onClick={() => openPaymentModal(sb)} title="Manage Payments">
@@ -1251,43 +1421,47 @@ const SaleBills = () => {
                   <td colSpan="5" className="text-end">
                     GRAND TOTAL:
                   </td>
-                  <td>
-                    ₹{(filteredSaleBills.reduce((sum, sb) => {
+                  <td className="text-end" style={{ textAlign: "right" }}>
+                    {formatAmount(filteredSaleBills.reduce((sum, sb) => {
                       const total = (sb.services || []).reduce((sSum, s) => sSum + Number(s.total_amount || (Number(s.rate || 0) * Number(s.quantity || 0))), 0);
-                      return sum + total;
-                    }, 0) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
+                      return sum + Math.round(total);
+                    }, 0))}
                   </td>
-                  <td className="text-success">
-                    ₹{(filteredSaleBills.reduce((sum, sb) => {
+                  <td className="text-success text-end" style={{ textAlign: "right" }}>
+                    {formatAmount(filteredSaleBills.reduce((sum, sb) => {
                       const summary = listPaymentSummaries[sb.id];
                       const received = Number(summary ? summary.total_received : (sb.received_amount || sb.total_received || 0));
                       return sum + received;
-                    }, 0) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
+                    }, 0))}
                   </td>
-                  <td className="text-muted">
-                    ₹{(filteredSaleBills.reduce((sum, sb) => {
+                  <td className="text-muted text-end" style={{ textAlign: "right" }}>
+                    {formatAmount(filteredSaleBills.reduce((sum, sb) => {
                       const summary = listPaymentSummaries[sb.id];
                       const tds = Number(summary ? summary.total_tds : (sb.total_tds || sb.tds || 0));
                       return sum + tds;
-                    }, 0) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
+                    }, 0))}
                   </td>
-                  <td className="text-muted">
-                    ₹{(filteredSaleBills.reduce((sum, sb) => {
+                  <td className="text-muted text-end" style={{ textAlign: "right" }}>
+                    {formatAmount(filteredSaleBills.reduce((sum, sb) => {
                       const summary = listPaymentSummaries[sb.id];
                       const deduction = Number(summary ? summary.total_deductions : (sb.total_deductions || sb.deductions || 0));
                       return sum + deduction;
-                    }, 0) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
+                    }, 0))}
                   </td>
-                  <td className="text-danger">
-                    ₹{((filteredSaleBills.reduce((sum, sb) => {
+                  <td className="text-danger text-end" style={{ textAlign: "right" }}>
+                    {formatAmount((filteredSaleBills.reduce((sum, sb) => {
                       const total = (sb.services || []).reduce((sSum, s) => sSum + Number(s.total_amount || (Number(s.rate || 0) * Number(s.quantity || 0))), 0);
+                      const roundedTotal = Math.round(total);
                       const summary = listPaymentSummaries[sb.id];
+                      const billTotal = summary?.bill_total != null ? Math.round(Number(summary.bill_total)) : roundedTotal;
                       const received = Number(summary ? summary.total_received : (sb.received_amount || sb.total_received || 0));
                       const tds = Number(summary ? summary.total_tds : (sb.total_tds || sb.tds || 0));
                       const deduction = Number(summary ? summary.total_deductions : (sb.total_deductions || sb.deductions || 0));
-                      const diff = Number(summary ? (summary.bill_total - (summary.total_received || 0) - (summary.total_tds || 0) - (summary.total_deductions || 0) - (summary.advance_amount || 0)) : (total - received - tds - deduction));
+                      const diff = summary?.pending_amount != null
+                        ? Math.round(Number(summary.pending_amount))
+                        : Math.round(billTotal - received - tds - deduction);
                       return sum + diff;
-                    }, 0) || 0) + (startDateForOB ? Number(openingBalance) : 0)).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
+                    }, 0)) + (startDateForOB ? Number(openingBalance) : 0))}
                   </td>
                   <td></td>
                 </tr>
@@ -1438,7 +1612,7 @@ const SaleBills = () => {
               {/* Amount in Words */}
               <div style={{ marginBottom: "15px" }}>
                 <p style={{ fontSize: "11px", margin: 0 }}>
-                  <strong>Amount Chargeable (in words):</strong> {numberToWords((previewSaleBill.services || []).reduce((sum, s) => sum + (Number(s.quantity || 0) * Number(s.rate || 0)), 0) + (previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.tax_amount || 0), 0))}
+                  <strong>Amount Chargeable (in words):</strong> {numberToWords(Math.round((previewSaleBill.services || []).reduce((sum, s) => sum + (Number(s.quantity || 0) * Number(s.rate || 0)), 0) + (previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.tax_amount || 0), 0)))}
                 </p>
               </div>
 
@@ -1464,23 +1638,23 @@ const SaleBills = () => {
                     return (
                       <tr key={idx}>
                         <td style={{ border: "1px solid #000", padding: "6px" }}>{service.hsn_sac || "-"}</td>
-                        <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}>₹ {taxableValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
+                        <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}>₹ {taxableValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td style={{ border: "1px solid #000", padding: "6px", textAlign: "center" }}>{igstRate}%</td>
-                        <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}>₹ {total.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
+                        <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}>₹ {total.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td style={{ border: "1px solid #000", padding: "6px", textAlign: "center" }}>{igstRate}%</td>
-                        <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}>₹ {taxableValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
-                        <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}>₹ {igstAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
+                        <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}>₹ {taxableValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}>₹ {igstAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                     );
                   })}
                   <tr style={{ fontWeight: "bold" }}>
                     <td style={{ border: "1px solid #000", padding: "6px" }}><strong>Total</strong></td>
-                    <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}><strong>₹ {(previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.amount || 0), 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</strong></td>
+                    <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}><strong>₹ {(previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.amount || 0), 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                     <td style={{ border: "1px solid #000", padding: "6px" }}></td>
-                    <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}><strong>₹ {((previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.amount || 0), 0) + (previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.tax_amount || 0), 0)).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</strong></td>
+                    <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}><strong>₹ {Math.round((previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.amount || 0), 0) + (previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.tax_amount || 0), 0)).toLocaleString("en-IN")}</strong></td>
                     <td style={{ border: "1px solid #000", padding: "6px" }}></td>
                     <td style={{ border: "1px solid #000", padding: "6px" }}></td>
-                    <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}><strong>₹ {(previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.tax_amount || 0), 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</strong></td>
+                    <td style={{ border: "1px solid #000", padding: "6px", textAlign: "right" }}><strong>₹ {(previewSaleBill.services || []).reduce((sum, s) => sum + Number(s.tax_amount || 0), 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                   </tr>
                 </tbody>
               </table>

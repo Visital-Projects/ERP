@@ -17,38 +17,53 @@ const SaleInvoiceEdit = () => {
   const normalizeSaleBill = (saleBill) => {
     const services = (saleBill.services || []).map((service) => {
       const taxRate = Number(service.tax_rate || 0);
-      let cgst = service.cgst != null ? Number(service.cgst) : 0;
-      let sgst = service.sgst != null ? Number(service.sgst) : 0;
-      let igst = service.igst != null ? Number(service.igst) : 0;
+      const rawCgst = service.cgst != null ? Number(service.cgst) : 0;
+      const rawSgst = service.sgst != null ? Number(service.sgst) : 0;
+      const rawIgst = service.igst != null ? Number(service.igst) : 0;
+      const rawTaxType = service.tax_type;
 
-      // Fallback if the backend didn't save the split or everything is 0 but we have a taxRate
-      if (taxRate > 0 && cgst === 0 && sgst === 0 && igst === 0) {
-        if (Number(service.igst_amount) > 0) {
+      let cgst = 0;
+      let sgst = 0;
+      let igst = 0;
+      let taxType = "CGST_SGST";
+
+      // Priority 1: Explicit persisted tax_type or persisted IGST value
+      if (rawTaxType === "IGST" || rawIgst > 0) {
+        taxType = "IGST";
+        igst = taxRate;
+        cgst = 0;
+        sgst = 0;
+      } else if (rawTaxType === "CGST_SGST" || rawCgst > 0 || rawSgst > 0) {
+        // Priority 2: Persisted CGST/SGST value
+        taxType = "CGST_SGST";
+        cgst = taxRate / 2;
+        sgst = taxRate / 2;
+        igst = 0;
+      } else if (taxRate > 0) {
+        // Priority 3: Only use legacy fallback if old record has taxRate > 0 but completely zero GST fields
+        const stateStr = String(
+          saleBill.buyer_state_code ||
+            saleBill.consignee_state_code ||
+            saleBill.buyer_state ||
+            saleBill.consignee_state ||
+            ""
+        ).toLowerCase();
+        const isInterState =
+          stateStr &&
+          stateStr !== "21" &&
+          !stateStr.includes("odisha") &&
+          stateStr !== "od";
+
+        if (isInterState) {
+          taxType = "IGST";
           igst = taxRate;
-        } else if (Number(service.cgst_amount) > 0 || Number(service.sgst_amount) > 0) {
+          cgst = 0;
+          sgst = 0;
+        } else {
+          taxType = "CGST_SGST";
           cgst = taxRate / 2;
           sgst = taxRate / 2;
-        } else {
-          // Fallback based on state info: Odisha state code is "21"
-          const stateStr = String(
-            saleBill.buyer_state_code ||
-              saleBill.consignee_state_code ||
-              saleBill.buyer_state ||
-              saleBill.consignee_state ||
-              ""
-          ).toLowerCase();
-          const isInterState =
-            stateStr &&
-            stateStr !== "21" &&
-            !stateStr.includes("odisha") &&
-            stateStr !== "od";
-
-          if (isInterState) {
-            igst = taxRate;
-          } else {
-            cgst = taxRate / 2;
-            sgst = taxRate / 2;
-          }
+          igst = 0;
         }
       }
 
@@ -65,6 +80,7 @@ const SaleInvoiceEdit = () => {
         cgst,
         sgst,
         igst,
+        tax_type: taxType,
         tax_rate: service.tax_rate != null ? Number(service.tax_rate) : taxRate,
       };
     });
@@ -181,9 +197,11 @@ const SaleInvoiceEdit = () => {
       );
     };
 
-    const rupees = Math.floor(num);
-    const paise = Math.round((num - rupees) * 100);
-    let words = toWords(rupees) + " rupees";
+    const isNegative = num < 0;
+    const absNum = Math.abs(num);
+    const rupees = Math.floor(absNum);
+    const paise = Math.round((absNum - rupees) * 100);
+    let words = (isNegative ? "minus " : "") + toWords(rupees) + " rupees";
     if (paise) words += " and " + toWords(paise) + " paise";
     return words + " only";
   };
@@ -219,8 +237,23 @@ const SaleInvoiceEdit = () => {
     const sgstAmount = (sgst / 100) * baseAmount;
     const igstAmount = (igst / 100) * baseAmount;
 
+    let taxType = "CGST_SGST";
+    if (igst > 0 && cgst === 0 && sgst === 0) {
+      taxType = "IGST";
+    } else if (service.tax_type === "IGST" && cgst === 0 && sgst === 0) {
+      taxType = "IGST";
+    } else if (cgst > 0 || sgst > 0) {
+      taxType = "CGST_SGST";
+    } else if (service.tax_type) {
+      taxType = service.tax_type;
+    }
+
     return {
       ...service,
+      tax_type: taxType,
+      cgst,
+      sgst,
+      igst,
       amount: baseAmount,
       cgst_amount: cgstAmount,
       sgst_amount: sgstAmount,

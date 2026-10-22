@@ -340,6 +340,7 @@ exports.markCreditPurchasePaid = async (req, res) => {
         description: `Payment of credit purchase #${credit.id}`,
         balance_after: balanceAfter,
         created_by: req.user.id,
+        transaction_date: credit.actual_bill_date || null,
       },
       { transaction: t }
     );
@@ -608,6 +609,7 @@ exports.updateCreditPurchase = async (req, res) => {
           description: "Payment of credit purchase #" + credit.id,
           balance_after: balanceAfter,
           created_by: req.user.id,
+          transaction_date: updatedFields.actual_bill_date || credit.actual_bill_date || null,
         },
         { transaction: t }
       );
@@ -629,17 +631,20 @@ exports.updateCreditPurchase = async (req, res) => {
       });
 
       if (existingTx) {
+        const newBillDate = updatedFields.actual_bill_date || credit.actual_bill_date || null;
         if (newPaymentStatus === "pending") {
           // Changed from paid to pending: remove the payment transaction
           await existingTx.destroy({ transaction: t });
           await recalculateBranchBalances(oldBranchId);
         } else {
-          // Still paid: check if site or amount changed
+          // Still paid: check if site, amount, or bill date changed
           if (oldBranchId === targetBranchId) {
-            if (oldTotalAmount !== newTotalAmount) {
+            const needsUpdate = oldTotalAmount !== newTotalAmount || (newBillDate && String(existingTx.transaction_date || "").split("T")[0] !== String(newBillDate).split("T")[0]);
+            if (needsUpdate) {
               await existingTx.update(
                 {
                   amount: newTotalAmount,
+                  ...(newBillDate ? { transaction_date: newBillDate } : {}),
                 },
                 { transaction: t }
               );
@@ -651,6 +656,7 @@ exports.updateCreditPurchase = async (req, res) => {
               {
                 branch_id: targetBranchId,
                 amount: newTotalAmount,
+                ...(newBillDate ? { transaction_date: newBillDate } : {}),
               },
               { transaction: t }
             );

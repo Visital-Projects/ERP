@@ -244,6 +244,7 @@ exports.createExpenseNew = async (req, res) => {
       description: description || "Expense Deduction",
       balance_after: balanceAfter,
       created_by: userId,
+      transaction_date: actual_bill_date || null,
     }, { transaction: t });
 
     await t.commit();
@@ -515,11 +516,14 @@ exports.updateExpenseNew = async (req, res) => {
     });
 
     if (existingTx) {
+      const newBillDate = actual_bill_date ?? expense.actual_bill_date;
       if (oldBranchId === targetBranchId) {
-        if (oldAmount !== newTotalAmount) {
+        const needsUpdate = oldAmount !== newTotalAmount || (newBillDate && String(existingTx.transaction_date || "").split("T")[0] !== String(newBillDate).split("T")[0]);
+        if (needsUpdate) {
           await existingTx.update(
             {
               amount: newTotalAmount,
+              ...(newBillDate ? { transaction_date: newBillDate } : {}),
             },
             { transaction: t }
           );
@@ -530,6 +534,7 @@ exports.updateExpenseNew = async (req, res) => {
           {
             branch_id: targetBranchId,
             amount: newTotalAmount,
+            ...(newBillDate ? { transaction_date: newBillDate } : {}),
           },
           { transaction: t }
         );

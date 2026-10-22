@@ -770,6 +770,7 @@
 
 
 const { Op } = require("sequelize");
+const { sequelize } = require("../config/database");
 const path = require("path");
 
 const SaleBill = require("../models/saleBill.model");
@@ -997,11 +998,31 @@ exports.createSaleBill = async (req, res) => {
 
       let cgst = 0, sgst = 0, igst = 0;
 
-      if (s.tax_type === "IGST") {
-        igst = taxAmount;
+      const isIgst =
+        s.tax_type === "IGST" ||
+        (parseFloat(s.igst) > 0 && !(parseFloat(s.cgst) > 0 || parseFloat(s.sgst) > 0)) ||
+        (parseFloat(s.igst_amount) > 0 && !(parseFloat(s.cgst_amount) > 0 || parseFloat(s.sgst_amount) > 0));
+
+      if (isIgst) {
+        const enteredIgst = parseFloat(s.igst) || 0;
+        if (enteredIgst > 0) {
+          igst = (taxableValue * enteredIgst) / 100;
+        } else {
+          igst = taxAmount;
+        }
+        cgst = 0;
+        sgst = 0;
       } else {
-        cgst = taxAmount / 2;
-        sgst = taxAmount / 2;
+        const enteredCgst = parseFloat(s.cgst) || 0;
+        const enteredSgst = parseFloat(s.sgst) || 0;
+        if (enteredCgst > 0 || enteredSgst > 0) {
+          cgst = (taxableValue * enteredCgst) / 100;
+          sgst = (taxableValue * enteredSgst) / 100;
+        } else {
+          cgst = taxAmount / 2;
+          sgst = taxAmount / 2;
+        }
+        igst = 0;
       }
 
       const totalAmount = amount + taxAmount;
@@ -1172,9 +1193,16 @@ exports.getAllSaleBills = async (req, res) => {
             "quantity",
             "rate",
             "amount",
+            "is_taxable",
+            "taxable_value",
+            "cgst",
+            "sgst",
+            "igst",
             "tax_rate",
             "tax_amount",
             "total_amount",
+            "total_amount_words",
+            "tax_amount_words",
           ],
         },
         {
@@ -1237,9 +1265,16 @@ exports.getSaleBillById = async (req, res) => {
             "quantity",
             "rate",
             "amount",
+            "is_taxable",
+            "taxable_value",
+            "cgst",
+            "sgst",
+            "igst",
             "tax_rate",
             "tax_amount",
             "total_amount",
+            "total_amount_words",
+            "tax_amount_words",
           ],
         },
         {
@@ -1302,9 +1337,25 @@ exports.getSaleBillById = async (req, res) => {
     // =========================
     // RESPONSE
     // =========================
+    const billData = bill.toJSON();
+    if (billData.services && Array.isArray(billData.services)) {
+      billData.services = billData.services.map((svc) => {
+        let taxType = "CGST_SGST";
+        if (parseFloat(svc.igst) > 0) {
+          taxType = "IGST";
+        } else if (parseFloat(svc.cgst) > 0 || parseFloat(svc.sgst) > 0) {
+          taxType = "CGST_SGST";
+        }
+        return {
+          ...svc,
+          tax_type: taxType,
+        };
+      });
+    }
+
     res.status(200).json({
       success: true,
-      data: bill,
+      data: billData,
       message: "Sale bill fetched successfully",
     });
 
@@ -1402,11 +1453,31 @@ exports.updateSaleBill = async (req, res) => {
         sgst = 0,
         igst = 0;
 
-      if (s.tax_type === "IGST") {
-        igst = taxAmount;
+      const isIgst =
+        s.tax_type === "IGST" ||
+        (parseFloat(s.igst) > 0 && !(parseFloat(s.cgst) > 0 || parseFloat(s.sgst) > 0)) ||
+        (parseFloat(s.igst_amount) > 0 && !(parseFloat(s.cgst_amount) > 0 || parseFloat(s.sgst_amount) > 0));
+
+      if (isIgst) {
+        const enteredIgst = parseFloat(s.igst) || 0;
+        if (enteredIgst > 0) {
+          igst = (taxableValue * enteredIgst) / 100;
+        } else {
+          igst = taxAmount;
+        }
+        cgst = 0;
+        sgst = 0;
       } else {
-        cgst = taxAmount / 2;
-        sgst = taxAmount / 2;
+        const enteredCgst = parseFloat(s.cgst) || 0;
+        const enteredSgst = parseFloat(s.sgst) || 0;
+        if (enteredCgst > 0 || enteredSgst > 0) {
+          cgst = (taxableValue * enteredCgst) / 100;
+          sgst = (taxableValue * enteredSgst) / 100;
+        } else {
+          cgst = taxAmount / 2;
+          sgst = taxAmount / 2;
+        }
+        igst = 0;
       }
 
       const totalAmount = amount + taxAmount;
@@ -1736,69 +1807,85 @@ exports.deleteSaleBill = async (req, res) => {
       }
     }
 
-    // =========================
-    // 🔥 FETCH PROFORMA ADJUSTMENTS
-    // =========================
-    const adjustments = await SaleBillPayment.findAll({
-      where: {
-        sale_bill_id: bill.id,
-        source_type: "proforma",
-      },
-    });
-
-    // =========================
-    // 🔥 RESTORE PROFORMA CREDIT
-    // =========================
-    for (const adj of adjustments) {
-      if (!adj.source_id) continue;
-
-      const proforma = await ProformaBill.findByPk(adj.source_id);
-      if (!proforma) continue;
-
-      const currentOutstanding =
-        parseFloat(proforma.outstanding_amount) || 0;
-
-      const restoredAmount =
-        currentOutstanding + (parseFloat(adj.amount_received) || 0);
-
-      await proforma.update({
-        outstanding_amount: restoredAmount,
-
-        // status fix
-        status:
-          restoredAmount > 0
-            ? "partial"
-            : "settled",
+    const t = await sequelize.transaction();
+    try {
+      // =========================
+      // 🔥 FETCH PROFORMA ADJUSTMENTS
+      // =========================
+      const adjustments = await SaleBillPayment.findAll({
+        where: {
+          sale_bill_id: bill.id,
+          source_type: "proforma",
+        },
+        transaction: t,
       });
+
+      // =========================
+      // 🔥 RESTORE PROFORMA CREDIT
+      // =========================
+      for (const adj of adjustments) {
+        if (!adj.source_id) continue;
+
+        const proforma = await ProformaBill.findByPk(adj.source_id, {
+          transaction: t,
+        });
+        if (!proforma) continue;
+
+        const currentOutstanding =
+          parseFloat(proforma.outstanding_amount) || 0;
+
+        const restoredAmount =
+          currentOutstanding + (parseFloat(adj.amount_received) || 0);
+
+        await proforma.update(
+          {
+            outstanding_amount: restoredAmount,
+            status: restoredAmount > 0 ? "partial" : "settled",
+          },
+          { transaction: t }
+        );
+      }
+
+      // =========================
+      // 1. DELETE ALL PAYMENTS FOR THIS SALE BILL
+      // =========================
+      await SaleBillPayment.destroy({
+        where: {
+          sale_bill_id: bill.id,
+        },
+        transaction: t,
+        force: true,
+      });
+
+      // =========================
+      // 2. DELETE ALL SERVICES / ITEMS FOR THIS SALE BILL
+      // =========================
+      await SaleBillService.destroy({
+        where: {
+          sale_bill_id: bill.id,
+        },
+        transaction: t,
+        force: true,
+      });
+
+      // =========================
+      // 3. HARD DELETE SALE BILL
+      // =========================
+      await bill.destroy({
+        transaction: t,
+        force: true,
+      });
+
+      await t.commit();
+
+      return res.status(200).json({
+        success: true,
+        message: "Sale bill and all associated records deleted successfully",
+      });
+    } catch (txError) {
+      await t.rollback();
+      throw txError;
     }
-
-    // =========================
-    // 🔥 DELETE ADJUSTMENT PAYMENTS
-    // =========================
-    await SaleBillPayment.destroy({
-      where: {
-        sale_bill_id: bill.id,
-        source_type: "proforma",
-      },
-    });
-
-    // =========================
-    // OPTIONAL: RESET BILL FIELDS
-    // =========================
-    await bill.update({
-      advance_amount: null,
-      status: "pending",
-    });
-
-    // =========================
-    // SOFT DELETE BILL
-    // =========================
-    await bill.destroy(); // paranoid delete
-
-    return res.status(200).json({
-      success: true,
-      message: "Sale bill deleted and proforma credit restored successfully",
-    });
 
   } catch (err) {
     console.error("deleteSaleBill failed:", err);

@@ -30,8 +30,10 @@ const WorkingZone = require('./workingZone.model');
 
 const VendorName = sequelize.define('VendorName', {
   id: { type: DataTypes.BIGINT.UNSIGNED, autoIncrement: true, primaryKey: true },
-  working_zone: { type: DataTypes.BIGINT.UNSIGNED, allowNull: false },
+  working_zone: { type: DataTypes.BIGINT.UNSIGNED, allowNull: true },
   name: { type: DataTypes.STRING(191), allowNull: false },
+  address: { type: DataTypes.TEXT, allowNull: true },
+  phone: { type: DataTypes.STRING(50), allowNull: true },
   created_by: { type: DataTypes.BIGINT.UNSIGNED, allowNull: true },
   created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   updated_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW }

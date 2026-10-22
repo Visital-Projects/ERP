@@ -99,8 +99,23 @@ const SaleInvoiceCreate = () => {
     const sgstAmount = (sgst / 100) * baseAmount;
     const igstAmount = (igst / 100) * baseAmount;
 
+    let taxType = "CGST_SGST";
+    if (igst > 0 && cgst === 0 && sgst === 0) {
+      taxType = "IGST";
+    } else if (service.tax_type === "IGST" && cgst === 0 && sgst === 0) {
+      taxType = "IGST";
+    } else if (cgst > 0 || sgst > 0) {
+      taxType = "CGST_SGST";
+    } else if (service.tax_type) {
+      taxType = service.tax_type;
+    }
+
     return {
       ...service,
+      tax_type: taxType,
+      cgst,
+      sgst,
+      igst,
       amount: baseAmount,
       cgst_amount: cgstAmount,
       sgst_amount: sgstAmount,

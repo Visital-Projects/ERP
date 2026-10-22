@@ -6,14 +6,9 @@ import { toast } from "react-toastify";
 import branchService from "../../../services/branchService";
 import categoryService from "../../../services/expenseCategory";
 import creditPurchaseService from "../../../services/expensessService";
-
-const getTodayDateString = () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
+import vendorService from "../../../services/vendorService";
+import VendorAutocomplete from "./VendorAutocomplete";
+import { resolveDateInputValue, getTodayDateString } from "../Banking/walletAccountingHelpers";
 
 const CreditPurchaseForm = ({
   initialBranchId = "",
@@ -27,8 +22,10 @@ const CreditPurchaseForm = ({
 }) => {
   const [branches, setBranches] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [vendorOptions, setVendorOptions] = useState([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [loadingCategories, setLoadingCategories] = useState(false);
+  const [loadingVendors, setLoadingVendors] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -40,7 +37,7 @@ const CreditPurchaseForm = ({
     description: initialDescription || "",
     vendor_name: "",
     type_of_supply_or_service: "",
-    actual_bill_date: getTodayDateString(),
+    actual_bill_date: resolveDateInputValue(initialTransactionDate),
     remark: "",
     items: [
       {
@@ -58,7 +55,21 @@ const CreditPurchaseForm = ({
   useEffect(() => {
     fetchBranches();
     fetchCategories();
+    fetchVendors();
   }, []);
+
+  const fetchVendors = async () => {
+    setLoadingVendors(true);
+    try {
+      const data = await vendorService.getAllVendors();
+      setVendorOptions(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to fetch vendors:", err);
+      setVendorOptions([]);
+    } finally {
+      setLoadingVendors(false);
+    }
+  };
 
   const fetchBranches = async () => {
     setLoadingBranches(true);
@@ -92,18 +103,33 @@ const CreditPurchaseForm = ({
         description: existingPurchase.description || "",
         vendor_name: existingPurchase.vendor_name || "",
         type_of_supply_or_service: existingPurchase.type_of_supply_or_service || "",
-        actual_bill_date: existingPurchase.actual_bill_date
-          ? String(existingPurchase.actual_bill_date).split("T")[0]
-          : getTodayDateString(),
+        actual_bill_date: resolveDateInputValue(
+          existingPurchase.actual_bill_date,
+          initialTransactionDate
+        ),
         remark: existingPurchase.remark || "",
-        items: (existingPurchase.items || []).map((item) => ({
-          item_name: item.item_name || "",
-          subtotal: item.subtotal || "",
-          is_taxable: !!item.is_taxable,
-          tax_rate: item.tax_rate || 0,
-          tax_type: item.tax_type || "inclusive",
-          document: null,
-        })),
+        items: (existingPurchase.items || []).map((item) => {
+          // Reconstruct the original user-entered amount:
+          // - Inclusive tax: user entered the GROSS amount (tax included),
+          //   stored as total_amount. item.subtotal is only the taxable base.
+          // - Exclusive tax / non-taxable: user entered the BASE amount,
+          //   stored as item.subtotal.
+          const isTaxableInclusive =
+            !!item.is_taxable &&
+            (item.tax_type || "").toLowerCase() === "inclusive";
+          const displayAmount = isTaxableInclusive
+            ? (item.total_amount != null ? item.total_amount : item.subtotal)
+            : item.subtotal;
+
+          return {
+            item_name: item.item_name || "",
+            subtotal: displayAmount != null ? displayAmount : "",
+            is_taxable: !!item.is_taxable,
+            tax_rate: item.tax_rate || 0,
+            tax_type: item.tax_type || "inclusive",
+            document: null,
+          };
+        }),
         status: existingPurchase.status || "pending",
       });
     } else if (initialBranchId || initialAmount || initialDescription || initialTransactionDate) {
@@ -111,7 +137,7 @@ const CreditPurchaseForm = ({
         ...prev,
         branch_id: initialBranchId || prev.branch_id,
         description: initialDescription || prev.description,
-        actual_bill_date: prev.actual_bill_date || getTodayDateString(),
+        actual_bill_date: resolveDateInputValue(initialTransactionDate, prev.actual_bill_date),
         items: [
           {
             item_name: "",
@@ -215,7 +241,16 @@ const CreditPurchaseForm = ({
       const newErrors = {};
       if (!fromWallet && !formData.branch_id) newErrors.branch_id = "Site is required";
       if (!formData.category_id) newErrors.category_id = "Payment Head is required";
-      if (!formData.vendor_name?.trim()) newErrors.vendor_name = "Vendor name is required";
+      if (!formData.vendor_name?.trim()) {
+        newErrors.vendor_name = "Vendor name is required";
+      } else if (
+        vendorOptions.length > 0 &&
+        !vendorOptions.some(
+          (v) => (v.name || v.vendor_name || "").trim().toLowerCase() === formData.vendor_name.trim().toLowerCase()
+        )
+      ) {
+        newErrors.vendor_name = "Please select a valid existing vendor from the suggestions";
+      }
       if (!formData.type_of_supply_or_service) newErrors.type_of_supply_or_service = "Type of supply or service is required";
       if (!fromWallet && !formData.actual_bill_date) newErrors.actual_bill_date = "Bill date is required";
       if (existingPurchase && !formData.remark?.trim()) {
@@ -237,13 +272,20 @@ const CreditPurchaseForm = ({
         setErrors({});
       }
 
+      const matchedVendor = vendorOptions.find(
+        (v) => (v.name || v.vendor_name || "").trim().toLowerCase() === formData.vendor_name?.trim().toLowerCase()
+      );
+      const finalVendorName = matchedVendor
+        ? (matchedVendor.name || matchedVendor.vendor_name)
+        : (formData.vendor_name || "").trim();
+
       const submitData = new FormData();
       submitData.append("branch_id", formData.branch_id);
       submitData.append("category_id", formData.category_id);
       submitData.append("description", formData.description || "");
       submitData.append("actual_bill_date", formData.actual_bill_date);
       submitData.append("remark", formData.remark || "");
-      submitData.append("vendor_name", formData.vendor_name);
+      submitData.append("vendor_name", finalVendorName);
       submitData.append("type_of_supply_or_service", formData.type_of_supply_or_service);
       submitData.append("status", formData.status || "pending");
 
@@ -428,18 +470,23 @@ const CreditPurchaseForm = ({
               <Form.Label>
                 Vendor Name <span className="text-danger">*</span>
               </Form.Label>
-              <Form.Control
-                type="text"
-                name="vendor_name"
+              <VendorAutocomplete
                 value={formData.vendor_name}
-                onChange={handleChange}
-                placeholder="Enter vendor name..."
-                isInvalid={!!errors.vendor_name}
+                onChange={(name) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    vendor_name: name,
+                  }));
+                  if (errors.vendor_name) {
+                    setErrors((prev) => ({ ...prev, vendor_name: null }));
+                  }
+                }}
+                vendors={vendorOptions}
+                placeholder="Search vendor..."
                 disabled={isSubmitting}
+                isInvalid={!!errors.vendor_name}
+                error={errors.vendor_name}
               />
-              <Form.Control.Feedback type="invalid">
-                {errors.vendor_name}
-              </Form.Control.Feedback>
             </Form.Group>
           </Col>
 

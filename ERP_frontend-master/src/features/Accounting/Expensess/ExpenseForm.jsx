@@ -335,7 +335,10 @@ import Select from "react-select";
 import { getBranches } from "../../../services/branchService";
 import categoryService from "../../../services/expenseCategory";
 import expenseService from "../../../services/expensessService";
+import vendorService from "../../../services/vendorService";
+import VendorAutocomplete from "./VendorAutocomplete";
 import { useNavigate } from "react-router-dom";
+import { resolveDateInputValue, getTodayDateString } from "../Banking/walletAccountingHelpers";
 
 const ExpenseForm = ({
   initialBranchId,
@@ -349,24 +352,12 @@ const ExpenseForm = ({
 }) => {
   const navigate = useNavigate();
 
-  const toDateInputValue = (value) => {
-    if (!value) return "";
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? "" : date.toISOString().split("T")[0];
-  };
-
-  const getTodayDateString = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, "0");
-    const day = String(today.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
   const [branches, setBranches] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [vendorOptions, setVendorOptions] = useState([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [loadingCategories, setLoadingCategories] = useState(false);
+  const [loadingVendors, setLoadingVendors] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -376,7 +367,7 @@ const ExpenseForm = ({
     category_id: "",
     vendor_name: "",
     type_of_supply_or_service: "",
-    actual_bill_date: getTodayDateString(),
+    actual_bill_date: resolveDateInputValue(initialTransactionDate),
     remark: initialDescription || "",
   });
 
@@ -395,6 +386,7 @@ const ExpenseForm = ({
   useEffect(() => {
     fetchBranches();
     fetchCategories();
+    fetchVendors();
 
     if (existingExpense) {
       setFormData({
@@ -403,12 +395,13 @@ const ExpenseForm = ({
         vendor_name: existingExpense.vendor_name || existingExpense.description || "",
         type_of_supply_or_service:
           existingExpense.type_of_supply_or_service || "",
-        actual_bill_date: toDateInputValue(
+        actual_bill_date: resolveDateInputValue(
           existingExpense.actual_bill_date ||
             existingExpense.payment_date ||
             existingExpense.created_at ||
-            existingExpense.createdAt
-        ) || getTodayDateString(),
+            existingExpense.createdAt,
+          initialTransactionDate
+        ),
         remark: existingExpense.remark || "",
       });
 
@@ -423,8 +416,27 @@ const ExpenseForm = ({
       if (prefillItems.length > 0) {
         setItems(prefillItems);
       }
+    } else if (initialBranchId || initialAmount || initialDescription || initialTransactionDate) {
+      setFormData((prev) => ({
+        ...prev,
+        branch_id: initialBranchId || prev.branch_id,
+        remark: initialDescription || prev.remark,
+        actual_bill_date: resolveDateInputValue(initialTransactionDate, prev.actual_bill_date),
+      }));
+      if (initialAmount) {
+        setItems([
+          {
+            item_name: "",
+            subtotal: initialAmount || "",
+            is_taxable: false,
+            tax_rate: 0,
+            tax_type: "",
+            document: null,
+          },
+        ]);
+      }
     }
-  }, [existingExpense]);
+  }, [existingExpense, initialBranchId, initialAmount, initialDescription, initialTransactionDate]);
 
   const fetchBranches = async () => {
     setLoadingBranches(true);
@@ -449,6 +461,19 @@ const ExpenseForm = ({
       toast.error("Failed to load categories");
     } finally {
       setLoadingCategories(false);
+    }
+  };
+
+  const fetchVendors = async () => {
+    setLoadingVendors(true);
+    try {
+      const data = await vendorService.getAllVendors();
+      setVendorOptions(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Error fetching vendors:", error);
+      setVendorOptions([]);
+    } finally {
+      setLoadingVendors(false);
     }
   };
 
@@ -492,7 +517,16 @@ const ExpenseForm = ({
     const newErrors = {};
     if (!formData.branch_id) newErrors.branch_id = "Site is required";
     if (!formData.category_id) newErrors.category_id = "Payment Head is required";
-    if (!formData.vendor_name?.trim()) newErrors.vendor_name = "Vendor name is required";
+    if (!formData.vendor_name?.trim()) {
+      newErrors.vendor_name = "Vendor name is required";
+    } else if (
+      vendorOptions.length > 0 &&
+      !vendorOptions.some(
+        (v) => (v.name || v.vendor_name || "").trim().toLowerCase() === formData.vendor_name.trim().toLowerCase()
+      )
+    ) {
+      newErrors.vendor_name = "Please select a valid existing vendor from the suggestions";
+    }
     if (!formData.type_of_supply_or_service)
       newErrors.type_of_supply_or_service = "Type of supply or service is required";
     if (!formData.actual_bill_date) newErrors.actual_bill_date = "Bill date is required";
@@ -514,11 +548,18 @@ const ExpenseForm = ({
 
     setIsSubmitting(true);
     try {
+      const matchedVendor = vendorOptions.find(
+        (v) => (v.name || v.vendor_name || "").trim().toLowerCase() === formData.vendor_name?.trim().toLowerCase()
+      );
+      const finalVendorName = matchedVendor
+        ? (matchedVendor.name || matchedVendor.vendor_name)
+        : (formData.vendor_name ? formData.vendor_name.trim() : "");
+
       const submitData = new FormData();
       submitData.append("branch_id", formData.branch_id);
       submitData.append("category_id", formData.category_id);
-      submitData.append("description", formData.vendor_name ? formData.vendor_name.trim() : "");
-      submitData.append("vendor_name", formData.vendor_name ? formData.vendor_name.trim() : "");
+      submitData.append("description", finalVendorName);
+      submitData.append("vendor_name", finalVendorName);
       submitData.append("remark", formData.remark || "");
       submitData.append("type_of_supply_or_service", formData.type_of_supply_or_service);
       submitData.append("actual_bill_date", formData.actual_bill_date);
@@ -704,20 +745,23 @@ const ExpenseForm = ({
               <Form.Label>
                 Vendor Name <span className="text-danger">*</span>
               </Form.Label>
-              <Form.Control
-                type="text"
-                name="vendor_name"
+              <VendorAutocomplete
                 value={formData.vendor_name}
-                onChange={(e) =>
-                  setFormData({ ...formData, vendor_name: e.target.value })
-                }
-                isInvalid={!!errors.vendor_name}
+                onChange={(name) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    vendor_name: name,
+                  }));
+                  if (errors.vendor_name) {
+                    setErrors((prev) => ({ ...prev, vendor_name: null }));
+                  }
+                }}
+                vendors={vendorOptions}
+                placeholder="Search vendor..."
                 disabled={isSubmitting}
-                placeholder="Enter vendor name..."
+                isInvalid={!!errors.vendor_name}
+                error={errors.vendor_name}
               />
-              <Form.Control.Feedback type="invalid">
-                {errors.vendor_name}
-              </Form.Control.Feedback>
             </Form.Group>
           </Col>
 

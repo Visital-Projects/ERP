@@ -678,6 +678,8 @@ import CreatableSelect from "react-select/creatable";
 import Select from "react-select";
 import { toast } from "react-toastify";
 import creditPurchaseService from "../../../services/expensessService";
+import vendorService from "../../../services/vendorService";
+import VendorAutocomplete from "./VendorAutocomplete";
 
 const CreditPurchaseModal = ({
   show,
@@ -728,6 +730,16 @@ const CreditPurchaseModal = ({
   const [isClosingModal, setIsClosingModal] = useState(false);
   const [loading, setLoading] = useState(false); // ✅ new state for spinner
   const [errors, setErrors] = useState({}); // ✅ new state for validation errors
+  const [vendorOptions, setVendorOptions] = useState([]);
+
+  useEffect(() => {
+    if (show) {
+      vendorService
+        .getAllVendors()
+        .then((data) => setVendorOptions(Array.isArray(data) ? data : []))
+        .catch((err) => console.error("Failed to load vendors:", err));
+    }
+  }, [show]);
 
   // useEffect(() => {
   //   if (editingPurchase) {
@@ -947,8 +959,16 @@ useEffect(() => {
       const newErrors = {};
       if (!fromWallet && !formData.branch_id) newErrors.branch_id = "Site is required";
       if (!formData.category_id) newErrors.category_id = "Category is required";
-      if (!formData.vendor_name.trim())
+      if (!formData.vendor_name?.trim()) {
         newErrors.vendor_name = "Vendor name is required";
+      } else if (
+        vendorOptions.length > 0 &&
+        !vendorOptions.some(
+          (v) => (v.name || v.vendor_name || "").trim().toLowerCase() === formData.vendor_name.trim().toLowerCase()
+        )
+      ) {
+        newErrors.vendor_name = "Please select a valid existing vendor from the suggestions";
+      }
       if (!formData.type_of_supply_or_service)
         newErrors.type_of_supply_or_service =
           "Type of supply or service is required";
@@ -973,13 +993,20 @@ useEffect(() => {
         setErrors({});
       }
 
+      const matchedVendor = vendorOptions.find(
+        (v) => (v.name || v.vendor_name || "").trim().toLowerCase() === formData.vendor_name?.trim().toLowerCase()
+      );
+      const finalVendorName = matchedVendor
+        ? (matchedVendor.name || matchedVendor.vendor_name)
+        : (formData.vendor_name || "").trim();
+
       const submitData = new FormData();
       submitData.append("branch_id", formData.branch_id);
       submitData.append("category_id", formData.category_id);
       submitData.append("description", formData.description);
       submitData.append("actual_bill_date", formData.actual_bill_date);
       submitData.append("remark", formData.remark);
-      submitData.append("vendor_name", formData.vendor_name);
+      submitData.append("vendor_name", finalVendorName);
       submitData.append(
         "type_of_supply_or_service",
         formData.type_of_supply_or_service
@@ -1220,16 +1247,23 @@ const totals = calculateTotals();
                   <Form.Label>
                     Vendor Name <span className="text-danger">*</span>
                   </Form.Label>
-                  <Form.Control
-                    type="text"
-                    name="vendor_name"
+                  <VendorAutocomplete
                     value={formData.vendor_name}
-                    onChange={handleChange}
+                    onChange={(name) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        vendor_name: name,
+                      }));
+                      if (errors.vendor_name) {
+                        setErrors((prev) => ({ ...prev, vendor_name: null }));
+                      }
+                    }}
+                    vendors={vendorOptions}
+                    placeholder="Search vendor..."
+                    disabled={loading}
                     isInvalid={!!errors.vendor_name}
+                    error={errors.vendor_name}
                   />
-                  <Form.Control.Feedback type="invalid">
-                    {errors.vendor_name}
-                  </Form.Control.Feedback>
                 </Form.Group>
               </Col>
               <Col>

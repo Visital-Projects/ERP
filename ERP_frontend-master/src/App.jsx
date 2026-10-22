@@ -110,6 +110,7 @@ import Income from "./features/Accounting/Income/Income";
 import PurchaseOrderDetails from "./features/Accounting/Purchase Order/PurchaseOrderDetails";
 import CreditPurchase from "./features/Accounting/Expensess/CreditPurchase";
 import CreditPurchaseCreate from "./features/Accounting/Expensess/CreditPurchaseCreate";
+import VendorList from "./features/Accounting/Vendors/VendorList";
 
 import Product from "./features/Product/product";
 import Stock from "./features/Product/stock";
@@ -738,6 +739,14 @@ function App() {
             }
           />
           <Route path="/accounting/expenses" element={<Expenses />} />
+          <Route
+            path="/accounting/vendors"
+            element={
+              <PermissionWith permission="manage vendor">
+                <VendorList />
+              </PermissionWith>
+            }
+          />
           <Route
             path="/accounting/expenses/:branchId/details"
             element={<ExpenseDetails />}

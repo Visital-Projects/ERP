@@ -579,15 +579,15 @@ const Sidebar = ({ isOpen, isCollapsed, toggleCollapse, openMenus, toggleMenu, o
                     )}
                   </div>
 
-                  {/* <PermissionWith permission="manage purchase order">
+                  <PermissionWith permission="manage vendor">
                     <NavLink
-                      to="/accounting/income"
+                      to="/accounting/vendors"
                       className="submenu-item"
                       onClick={onClose}
                     >
-                      Incomes
+                      Vendors
                     </NavLink>
-                  </PermissionWith> */}
+                  </PermissionWith>
 
                   <PermissionWith permission="manage purchase order">
                     <NavLink
